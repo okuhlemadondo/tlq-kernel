@@ -1,0 +1,11 @@
+{"run": "R2", "status": "FOUND", "reasons": [], "seconds": 376.5, "nodes": 1}
+   FOUND {'rules': ['TEAM_ENUM'], 'preserves': ['complete', 'sound'], 'classes': 8, 'values': [0.825]}
+   BLOCKED [] BEHAVIOURAL_OPT check REFUTED ['behavioural strategies admissible (fresh randomness at every decision site)'] bypassing the certificate loses value: 0.8 < certified 0.825
+   BLOCKED [] FAN_OUT_ACTIONS[A1] uncertified CONSERVATIVE [] uncertified, but nothing lost here: 0.825 vs 0.825
+   BLOCKED [] FAN_OUT_ACTIONS[A1] uncertified CONSERVATIVE [] uncertified, but nothing lost here: 0.825 vs 0.825
+   BLOCKED [] FAN_OUT_ACTIONS[A1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[A2] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B2] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness

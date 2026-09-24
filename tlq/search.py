@@ -49,6 +49,7 @@ class Report:
     status: str = ""
     reasons: list = field(default_factory=list)
     terminal_seen: bool = False       # did any explored problem admit a solved class for its solution concept?
+    params: dict = field(default_factory=dict)   # registry fingerprint and budgets: every status is relative to these
 
 
 def signature(P):
@@ -68,6 +69,17 @@ def signature(P):
 def search(P0, candidates=default_candidates, max_depth=8, max_nodes=400, cost_budget=2e5,
            all_derivations=True, diagnose=True, max_diagnoses=12):
     rep = Report()
+    import hashlib
+    names0 = sorted({r.name.split("[")[0] for r in candidates(P0)})
+    rep.params = {"registry": getattr(candidates, "__qualname__", "custom"), "root_rules": names0,
+                  "fingerprint": hashlib.sha256(repr(names0).encode()).hexdigest()[:12],
+                  "max_depth": max_depth, "max_nodes": max_nodes, "cost_budget": cost_budget}
+    check = getattr(P0, "validate", None)
+    if check is not None:                                  # F14: ill-formed problems are refused before search
+        good, why = check()
+        if not good:
+            rep.status, rep.reasons = "ILL_FORMED", [why]
+            return rep
 
     def dfs(d: Derivation, path, seen, depth):
         if rep.nodes >= max_nodes:
@@ -121,7 +133,10 @@ def search(P0, candidates=default_candidates, max_depth=8, max_nodes=400, cost_b
             if rule.terminal or rule.fanout:
                 try:
                     res = d2.solve()
-                    if "sound" in res.preserves:
+                    if not res.solutions:
+                        rep.blocked.append(Blocked(list(path), rule.name, "empty", [], "UNESTABLISHED",
+                                                   "the solved class returned no solutions (e.g. no pure equilibrium)"))
+                    elif "sound" in res.preserves:
                         rep.found.append(Found(path + [rule], res))
                     else:
                         rep.blocked.append(Blocked(list(path), rule.name, "uncertified", [],
@@ -230,6 +245,12 @@ def diagnose_step(rule, P, stage, candidates, cost_budget):
         return "UNESTABLISHED", "no certified value for the problem before the step"
     if rule.terminal:
         bypass_sols = list(Q.solutions)
+        for ob in rule.obligations(P):                       # F13: the bypass output must itself be certified
+            if ob.kind == "V" and (ob.required or ob.for_property == "sound"):
+                for x in bypass_sols:
+                    good, why = ob.check(P, x)
+                    if not good:
+                        return "UNESTABLISHED", f"bypass solver output not certified ({ob.name}): cannot refute"
     else:
         rep = search(Q, candidates, max_depth=6, max_nodes=120, cost_budget=cost_budget, all_derivations=True, diagnose=False)
         bypass_sols = [s for f in rep.found for s in f.result.solutions]

@@ -1,0 +1,115 @@
+{
+ "run": "R3",
+ "status": "NOT_ESTABLISHED",
+ "reasons": [
+  "no solved class in the registry for solution concept 'pbe' at any reachable problem",
+  "9 blocked step(s) not refuted (certificate not established, or not diagnosed)"
+ ],
+ "seconds": 0.7,
+ "nodes": 1,
+ "found": [],
+ "blocked": [
+  {
+   "path": [],
+   "rule": "PBE_TO_NASH",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "full-support observations"
+   ],
+   "detail": "no certified value for the problem before the step"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eA1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eA1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eB1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eB1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eA2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eA2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eB2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eB2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  }
+ ]
+}

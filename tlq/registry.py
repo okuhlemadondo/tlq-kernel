@@ -54,7 +54,7 @@ def coordinator_rules(P):
 def game_rules(P, weak_dominance_budget=36):
     if getattr(P, "kind", None) != "bimatrix":
         return []
-    out = [RF.IESDS(), RF.SUPPORT_ENUM()]
+    out = [RF.IESDS(), RF.SUPPORT_ENUM(), RF.PURE_NASH()]
     if len(P.rows) * len(P.cols) <= weak_dominance_budget:        # a resource bound, not problem knowledge
         out += [RF.IEWDS(0, s, t) for s, t in itertools.permutations(P.rows, 2)]
         out += [RF.IEWDS(1, s, t) for s, t in itertools.permutations(P.cols, 2)]

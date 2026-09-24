@@ -75,6 +75,26 @@ class FiniteProblem:
                     return False, f"event {e.name} reads {r.src}, which is not strictly earlier"
         return True, "every record transfer points to an earlier event"
 
+    def validate(self):
+        """Well-formedness: X is well-founded, and a world label denotes ONE world item (F14)."""
+        good, why = self.well_founded()
+        if not good:
+            return good, why
+        free = {x: "uniform" for x in self.sites}
+        seen = {}
+        for _, om in self.world:
+            for _, acts, _, _ in self.paths(free, om):
+                vals = {}
+                for e in self.events:
+                    if e.exists is not None and not e.exists(om, acts):
+                        continue
+                    for r in e.reads:
+                        if r.kind == "obs":
+                            v = repr(r.fn(om, acts))
+                            if vals.setdefault(r.label, v) != v:
+                                return False, f"world label '{r.label}' denotes different items at different reads"
+        return True, "well-formed"
+
     def decision_sites(self):
         return [s for s in self.sites.values() if s.program is None and len(s.actions) > 1]
 

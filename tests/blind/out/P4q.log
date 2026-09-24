@@ -1,0 +1,4 @@
+P4 (no diagnosis): FOUND ['budget cut part of the search'] 109.2 s
+  FOUND ['NORMAL_FORM', 'PURE_NASH'] | props ['sound'] | solutions 100 | classes 18 | payoff pairs [(0.0, 0.65), (0.0, 0.7), (0.3, 0.3), (0.65, 0.0), (0.7, 0.0)]
+  FOUND ['NORMAL_FORM', 'IESDS', 'PURE_NASH'] | props ['sound'] | solutions 100 | classes 18 | payoff pairs [(0.0, 0.65), (0.0, 0.7), (0.3, 0.3), (0.65, 0.0), (0.7, 0.0)]
+independent: pure NE 100 payoff pairs [(np.float64(0.0), np.float64(0.65)), (np.float64(0.0), np.float64(0.7)), (np.float64(0.3), np.float64(0.3)), (np.float64(0.65), np.float64(0.0)), (np.float64(0.7), np.float64(0.0))]

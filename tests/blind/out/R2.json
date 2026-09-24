@@ -1,0 +1,201 @@
+{
+ "run": "R2",
+ "status": "FOUND",
+ "reasons": [],
+ "seconds": 376.5,
+ "nodes": 1,
+ "found": [
+  {
+   "rules": [
+    "TEAM_ENUM"
+   ],
+   "preserves": [
+    "complete",
+    "sound"
+   ],
+   "classes": 8,
+   "values": [
+    0.825
+   ]
+  }
+ ],
+ "blocked": [
+  {
+   "path": [],
+   "rule": "BEHAVIOURAL_OPT",
+   "stage": "check",
+   "verdict": "REFUTED",
+   "failed": [
+    "behavioural strategies admissible (fresh randomness at every decision site)"
+   ],
+   "detail": "bypassing the certificate loses value: 0.8 < certified 0.825"
+  },
+  {
+   "path": [],
+   "rule": "COMMON_INFO",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "fixed event structure",
+    "partial history sharing"
+   ],
+   "detail": "the bypassed problem could not be solved and evaluated in the original"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eA1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eA1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eB1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eB1.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eA2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eA2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "OBS_AS_RECORD[eB2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "WORLD_CHANNEL_AS_MESSAGE[eB2.t]",
+   "stage": "check",
+   "verdict": "UNESTABLISHED",
+   "failed": [
+    "noise-free, single-source observation",
+    "no other observers of the world item",
+    "separable side effect"
+   ],
+   "detail": "no bypass: the forward map is undefined here (AttributeError)"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[A1]",
+   "stage": "uncertified",
+   "verdict": "CONSERVATIVE",
+   "failed": [],
+   "detail": "uncertified, but nothing lost here: 0.825 vs 0.825"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[A1]",
+   "stage": "uncertified",
+   "verdict": "CONSERVATIVE",
+   "failed": [],
+   "detail": "uncertified, but nothing lost here: 0.825 vs 0.825"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[A1]",
+   "stage": "uncertified",
+   "verdict": "UNESTABLISHED",
+   "failed": [],
+   "detail": "reached a solved class, but the derivation certifies no soundness"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[B1]",
+   "stage": "uncertified",
+   "verdict": "UNESTABLISHED",
+   "failed": [],
+   "detail": "reached a solved class, but the derivation certifies no soundness"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[B1]",
+   "stage": "uncertified",
+   "verdict": "UNESTABLISHED",
+   "failed": [],
+   "detail": "reached a solved class, but the derivation certifies no soundness"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[B1]",
+   "stage": "uncertified",
+   "verdict": "UNESTABLISHED",
+   "failed": [],
+   "detail": "reached a solved class, but the derivation certifies no soundness"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[A2]",
+   "stage": "uncertified",
+   "verdict": "UNESTABLISHED",
+   "failed": [],
+   "detail": "reached a solved class, but the derivation certifies no soundness"
+  },
+  {
+   "path": [],
+   "rule": "FAN_OUT_ACTIONS[B2]",
+   "stage": "uncertified",
+   "verdict": "UNESTABLISHED",
+   "failed": [],
+   "detail": "reached a solved class, but the derivation certifies no soundness"
+  }
+ ]
+}

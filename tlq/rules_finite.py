@@ -549,17 +549,27 @@ def IESDS():
                     c.remove(j); changed = True
         return r, c
 
+    cache = {}
+
+    def reduced(G):
+        key = id(G)
+        if key not in cache or cache[key][0] is not G:
+            cache[key] = (G, reduce(G))       # keep G alive so its id stays unique
+        return cache[key][1]
+
     def forward(G):
-        r, c = reduce(G)
+        r, c = reduced(G)
         H = Bimatrix(G.owners, [G.rows[i] for i in r], [G.cols[j] for j in c], G.A[np.ix_(r, c)], G.B[np.ix_(r, c)], G)
         H._keep = (r, c)
         return H
 
     def lift(G, sol):
-        r, c = reduce(G)
+        r, c = reduced(G)
         return _expand(G, r, c, sol)
 
     def unprofitable(G, s):
+        if s is None:
+            return True, "no solution to check"
         uA, uB = G.A @ s["q"], s["p"] @ G.B
         va, vb = s["p"] @ G.A @ s["q"], s["p"] @ G.B @ s["q"]
         return ok(uA.max() <= va + 1e-7 and uB.max() <= vb + 1e-7, "no removed strategy is a profitable deviation",
@@ -664,6 +674,25 @@ def SUPPORT_ENUM(max_support=4):
         return sum(comb(n, k) * comb(m, k) for k in range(1, min(n, m, max_support) + 1))
 
     return Transformation("SUPPORT_ENUM", frozenset({"sound", "complete"}), is_bimatrix, obligations, forward, terminal=True, cost=cost)
+
+
+def PURE_NASH():
+    """Terminal: all pure Nash equilibria of a bimatrix. Sound; existence-complete only if one is found."""
+    def forward(G):
+        brA = G.A >= G.A.max(0, keepdims=True) - TOL
+        brB = G.B >= G.B.max(1, keepdims=True) - TOL
+        out = []
+        for i, j in np.argwhere(brA & brB):
+            p = np.zeros(len(G.rows)); q = np.zeros(len(G.cols)); p[i] = 1; q[j] = 1
+            out.append({"p": p, "q": q, "vA": float(G.A[i, j]), "vB": float(G.B[i, j]), "rows": G.rows, "cols": G.cols})
+        return Explicit(out, note=f"{len(out)} pure equilibria")
+
+    def obligations(G):
+        return [Obligation("at least one pure equilibrium", V, lambda G, s: ok(s is not None, "found", "none: mixed equilibria not covered"),
+                           required=False, for_property="complete")]
+
+    return Transformation("PURE_NASH", frozenset({"sound", "complete"}), is_bimatrix, obligations, forward, terminal=True,
+                          cost=lambda G: G.A.size)
 
 
 # =====================================================================================  interpretation helpers

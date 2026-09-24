@@ -1,6 +1,6 @@
 # TLQ kernel v0.1 — regression suite
 
-Run: `python3 run_suite.py`. It uses real pytest if installed, otherwise a minimal pytest-compatible runner. Current status (v0.2): **62 passed, 0 failed** — 47 scripted-derivation tests + 15 derivation-search tests.
+Run: `python3 run_suite.py`. It uses real pytest if installed, otherwise a minimal pytest-compatible runner. Current status (v0.3): **66 passed, 0 failed** (47 scripted + 15 search + 4 v0.3). The blind case lives in `tests/blind/`: pre-registration, runs, independent evaluator, results.
 
 ## Layout
 

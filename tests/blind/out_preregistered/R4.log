@@ -1,0 +1,3 @@
+{"run": "R4", "status": "NOT_ESTABLISHED", "reasons": ["node or cost budget exhausted", "8 blocked step(s) not refuted (certificate not established, or not diagnosed)"], "seconds": 111.1, "nodes": 3}
+   BLOCKED ['NORMAL_FORM'] SUPPORT_ENUM budget UNESTABLISHED [] estimated cost 2.06e+19 exceeds budget 2e+06
+   BLOCKED ['NORMAL_FORM', 'IESDS'] SUPPORT_ENUM budget UNESTABLISHED [] estimated cost 3.39e+18 exceeds budget 2e+06

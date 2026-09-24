@@ -1,0 +1,1 @@
+{"run": "R3", "status": "NOT_ESTABLISHED", "reasons": ["no solved class in the registry for solution concept 'pbe' at any reachable problem", "9 blocked step(s) not refuted (certificate not established, or not diagnosed)"], "seconds": 0.7, "nodes": 1}

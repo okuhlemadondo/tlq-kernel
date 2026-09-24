@@ -1,0 +1,10 @@
+{"run": "P1", "status": "NOT_ESTABLISHED", "reasons": ["node or cost budget exhausted", "18 blocked step(s) not refuted (certificate not established, or not diagnosed)"], "seconds": 261.8, "nodes": 1}
+   BLOCKED [] TEAM_ENUM budget UNESTABLISHED [] estimated cost 3.32e+05 exceeds budget 2e+05
+   BLOCKED [] FAN_OUT_ACTIONS[A1] uncertified UNESTABLISHED [] no comparison available
+   BLOCKED [] FAN_OUT_ACTIONS[A1] uncertified UNESTABLISHED [] no comparison available
+   BLOCKED [] FAN_OUT_ACTIONS[A1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B1] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[A2] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
+   BLOCKED [] FAN_OUT_ACTIONS[B2] uncertified UNESTABLISHED [] reached a solved class, but the derivation certifies no soundness
