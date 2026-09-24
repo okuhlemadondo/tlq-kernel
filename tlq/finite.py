@@ -136,6 +136,45 @@ class FiniteProblem:
                     out[o] += pw * p * f(omega, acts)
         return out
 
+    # ------------------------------------------------------------ solution concept: its declared equivalence
+    def outcome_distribution(self, sol):
+        """Distribution over complete histories (world outcome index, actions) induced by a solution."""
+        if "policy" in sol:
+            profiles = [(1.0, sol["policy"])]
+        else:
+            profiles = [(pi * qj, {**r, **c}) for pi, r in zip(sol["p"], sol["rows"]) if pi > 1e-12
+                        for qj, c in zip(sol["q"], sol["cols"]) if qj > 1e-12]
+        dist = {}
+        for w, pol in profiles:
+            for k, (pw, om) in enumerate(self.world):
+                for p, acts, _, _ in self.paths(pol, om):
+                    key = (k, tuple(sorted((e, repr(a)) for e, a in acts.items())))
+                    dist[key] = dist.get(key, 0.0) + w * pw * p
+        return dist
+
+    def behaviour(self, sol):
+        """Behavioural strategy at every reachable record of every decision site (marginals over pure policies)."""
+        if "policy" in sol:
+            return {(s, repr(r)): repr(a) for s, pol in sol["policy"].items() if pol != "uniform" for r, a in pol.items()}
+        out = {}
+        for w, pols in ((sol["p"], sol["rows"]), (sol["q"], sol["cols"])):
+            for x, pol in zip(w, pols):
+                for s, rules in pol.items():
+                    for r, a in rules.items():
+                        k = (s, repr(r), repr(a))
+                        out[k] = out.get(k, 0.0) + x
+        return out
+
+    def equivalent(self, s, t, tol=1e-9):
+        """The solution concept declares its own equivalence:
+           team / nash : realization (outcome) equivalence -- same distribution over complete histories;
+           pbe         : finer -- same behaviour at every record, on and off path."""
+        if self.concept == "pbe":
+            a, b = self.behaviour(s), self.behaviour(t)
+        else:
+            a, b = self.outcome_distribution(s), self.outcome_distribution(t)
+        return all(abs(a.get(k, 0.0) - b.get(k, 0.0)) <= tol for k in set(a) | set(b))
+
     # ------------------------------------------------------------ reachable records (all actions explored)
     def reachable_records(self):
         found = {s.name: set() for s in self.sites.values()}

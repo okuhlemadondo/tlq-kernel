@@ -21,6 +21,13 @@ def team_ok(P):
     return ok(P.concept == "team" and len(P.payoffs) == 1, "single-owner team", f"concept={P.concept}, owners={list(P.payoffs)}")
 
 
+def is_finite_team(P):
+    """Applicability includes the solution concept: a team solver is not ABOUT a game (wrong kind, not a failed certificate)."""
+    if getattr(P, "kind", None) != "finite":
+        return False, "not a finite problem"
+    return team_ok(P)
+
+
 # =====================================================================================  team solvers
 def TEAM_ENUM():
     """Terminal: best pure profile by enumeration. Certified only when pure plans are value-complete."""
@@ -49,7 +56,14 @@ def TEAM_ENUM():
                 sols.append(pol)
         return Explicit([{"policy": s, "value": best} for s in sols], note=f"{len(sols)} optimal pure profiles")
 
-    return Transformation("TEAM_ENUM", frozenset({"sound", "complete"}), is_finite, obligations, forward, terminal=True)
+    def cost(P):
+        n = 1
+        for s, recs in P.reachable_records().items():
+            if P.sites[s].program is None and len(P.sites[s].actions) > 1:
+                n *= len(P.sites[s].actions) ** len(recs)
+        return n
+
+    return Transformation("TEAM_ENUM", frozenset({"sound", "complete"}), is_finite_team, obligations, forward, terminal=True, cost=cost)
 
 
 def BEHAVIOURAL_OPT(starts=24, seed=0):
@@ -88,7 +102,7 @@ def BEHAVIOURAL_OPT(starts=24, seed=0):
         agree = sum(abs(r.fun - best.fun) < 1e-7 for r in runs)
         return Explicit([{"policy": unpack(best.x), "value": -best.fun, "agree": agree}])
 
-    return Transformation("BEHAVIOURAL_OPT", frozenset({"sound", "complete"}), is_finite, obligations, forward, terminal=True)
+    return Transformation("BEHAVIOURAL_OPT", frozenset({"sound", "complete"}), is_finite_team, obligations, forward, terminal=True)
 
 
 # =====================================================================================  common information
@@ -142,10 +156,23 @@ def COMMON_INFO():
                     return False, f"world item {r.label} is read by several sites without being common"
         return True, "every read is either common (public action) or private to its site"
 
+    def no_world_mediated_flow(P):
+        for e in P.events:
+            for r in e.reads:
+                if r.kind != "obs":
+                    continue
+                for _, om in P.world:
+                    vals = {repr(r.fn(om, acts)) for acts in _all_action_paths(P, om)}
+                    if len(vals) > 1:
+                        return False, (f"world item {r.label} read at {e.name} depends on other decisions: "
+                                       "information flows through the world, outside the common/private split")
+        return True, "every private observation is a function of the world outcome alone"
+
     def obligations(P):
         return [Obligation("single-owner team", S, team_ok),
                 Obligation("execution semantics well-founded", S, lambda P: P.well_founded()),
                 Obligation("fixed event structure", S, structure),
+                Obligation("no world-mediated propagation between sites", S, no_world_mediated_flow),
                 Obligation("partial history sharing", S, partial_history_sharing)]
 
     def forward(P):
@@ -154,7 +181,7 @@ def COMMON_INFO():
     def lift(P, sol):
         return sol   # the coordinator DP already lifts prescriptions to site policies (see COORDINATOR_DP)
 
-    return Transformation("COMMON_INFO", frozenset({"sound", "complete"}), is_finite, obligations, forward, lift)
+    return Transformation("COMMON_INFO", frozenset({"sound", "complete"}), is_finite_team, obligations, forward, lift)
 
 
 def COORDINATOR_DP():
@@ -264,7 +291,16 @@ def NULL_AS_ABSENCE(site, label, null, uninformed_action):
         pred = lambda rec, _l=label, _n=null: dict(rec).get(_l) == _n
         return P.copy(restrictions=P.restrictions + [(site, pred, uninformed_action)])
 
-    return Transformation(f"NULL_AS_ABSENCE[{site}.{label}]", frozenset({"sound", "complete"}), applies, obligations, forward)
+    def lift(P, sol):
+        if "policy" not in sol:
+            return sol
+        pol = {k: (dict(v) if isinstance(v, dict) else v) for k, v in sol["policy"].items()}
+        for rec in P.reachable_records()[site]:
+            if dict(rec).get(label) == null:
+                pol.setdefault(site, {})[rec] = uninformed_action
+        return {**sol, "policy": pol}
+
+    return Transformation(f"NULL_AS_ABSENCE[{site}.{label}]", frozenset({"sound", "complete"}), applies, obligations, forward, lift)
 
 
 # =====================================================================================  world route -> record route
@@ -387,20 +423,26 @@ def WORLD_CHANNEL_AS_MESSAGE(event, label):
 
 # =====================================================================================  branching
 def FAN_OUT_ACTIONS(site, blocks):
-    """Fan out on which block of a site's actions is used; recombine by selecting the best branch."""
+    """Fan out on which block of a site's actions is used; recombine by selecting the best branch.
+    For an argmax task, the selected branch optimum is a solution of P only if the branches cover P's policy class,
+    so coverage is needed for SOUNDNESS as well as completeness (found by derivation search, F8)."""
     def applies(P):
-        return ok(getattr(P, "kind", None) == "finite" and site in P.sites, "site present", "no such site")
+        good, why = is_finite_team(P)
+        return (good and site in P.sites), (why if not good else "site present")
 
-    def one_record(P):
+    def covers(P):
         n = len(P.reachable_records()[site])
-        return ok(n == 1, "the site has a single record, so a policy-level split equals a record-level split",
+        if P.sites[site].coin is not None:
+            return False, "the site can randomize: a mixed or behavioural policy uses several blocks at one record"
+        return ok(n == 1, "single record, no randomization: a policy-level split equals the whole policy class",
                   f"the site has {n} records: branches exclude policies that use different blocks for different records")
 
     def obligations(P):
         return [Obligation("single-owner team", S, team_ok),
                 Obligation("blocks partition the action set", S,
-                           lambda P: ok(sorted(a for b in blocks for a in b) == sorted(P.sites[site].actions), "partition", "not a partition")),
-                Obligation("branch policy classes cover the original", S, one_record, required=False, for_property="complete")]
+                           lambda P: ok(sorted(map(repr, (a for b in blocks for a in b))) == sorted(map(repr, P.sites[site].actions)), "partition", "not a partition")),
+                Obligation("branch policy classes cover the original", S, covers, required=False, for_property="sound"),
+                Obligation("branch policy classes cover the original ", S, covers, required=False, for_property="complete")]
 
     def forward(P):
         return [P.copy(sites={**P.sites, site: replace(P.sites[site], actions=tuple(b))}) for b in blocks]
@@ -422,6 +464,10 @@ class Bimatrix:
     B: np.ndarray
     origin: object = None
     kind: str = "bimatrix"
+
+    def equivalent(self, s, t):
+        """Nash on a normal form: a mixed profile is its own identity (p and q equal)."""
+        return bool(np.allclose(s["p"], t["p"], atol=1e-8) and np.allclose(s["q"], t["q"], atol=1e-8))
 
 
 def PBE_TO_NASH():
@@ -612,7 +658,12 @@ def SUPPORT_ENUM(max_support=4):
                 Obligation("at least one equilibrium found", V, lambda G, s: ok(s is not None, "found", "none found"),
                            required=False, for_property="complete")]
 
-    return Transformation("SUPPORT_ENUM", frozenset({"sound", "complete"}), is_bimatrix, obligations, forward, terminal=True)
+    def cost(G):
+        from math import comb
+        n, m = G.A.shape
+        return sum(comb(n, k) * comb(m, k) for k in range(1, min(n, m, max_support) + 1))
+
+    return Transformation("SUPPORT_ENUM", frozenset({"sound", "complete"}), is_bimatrix, obligations, forward, terminal=True, cost=cost)
 
 
 # =====================================================================================  interpretation helpers

@@ -63,7 +63,8 @@ def solve_composite(P, claim=("sound",)):
 
 def test_c8_baseline_equilibrium_matches_round_6():
     r = solve_composite(composite())
-    assert {behaviour(s) for s in r.solutions} == {(0.8889, 0.8611, 0.5652, -0.2239, 0.0)}
+    assert len(r.solutions) == 4 and len(r.classes) == 1       # F4: four representations, one solution under the PBE equivalence
+    assert behaviour(r.solution) == (0.8889, 0.8611, 0.5652, -0.2239, 0.0)
     assert [rec.rule for rec in r.trace] == ["PBE_TO_NASH", "NORMAL_FORM", "IESDS", "SUPPORT_ENUM"]
 
 
@@ -131,13 +132,15 @@ def test_c9_world_channel_as_message_rejected(kw, failed):
         assert abs(team_value(channel("world", **kw)) - team_value(channel("record", **kw))) > 1e-3
 
 
-def test_c9_branching_derivation_and_its_completeness_bookkeeping():
+def test_c9_branching_derivation_and_its_certification():
+    """F8 (found by derivation search): for an argmax task, a fan-out's best branch is a solution only if the branches
+    cover the policy class. With a multi-record sender, coverage fails, so SOUNDNESS (not just completeness) is dropped."""
     P = route_choice()
     plan = lambda i, sub: sub.apply(TEAM_ENUM())
-    r = Derivation(P).fan(FAN_OUT_ACTIONS("C", [("rec",), ("none", "push")]), plan).solve(claim={"sound"})
-    assert r.solutions[0]["value"] <= team_value(P) + 1e-12
+    r = Derivation(P).fan(FAN_OUT_ACTIONS("C", [("rec",), ("none", "push")]), plan).solve()
+    assert "sound" not in r.preserves and r.solutions[0]["value"] <= team_value(P) + 1e-12
     with pytest.raises(Rejected):
-        Derivation(P).fan(FAN_OUT_ACTIONS("C", [("rec",), ("none", "push")]), plan).solve(claim={"complete"})
+        Derivation(P).fan(FAN_OUT_ACTIONS("C", [("rec",), ("none", "push")]), plan).solve(claim={"sound"})
     Q = route_choice(single_record=True)
     r2 = Derivation(Q).fan(FAN_OUT_ACTIONS("C", [("rec",), ("none", "push")]), plan).solve(claim={"sound", "complete"})
     assert abs(r2.solutions[0]["value"] - team_value(Q)) < 1e-12

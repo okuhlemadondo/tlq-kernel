@@ -76,6 +76,7 @@ class Transformation:
     fanout: bool = False
     terminal: bool = False
     executable: bool = True
+    cost: Callable | None = None      # optional resource estimate (executable kernel only; not part of the semantics)
 
 
 @dataclass
@@ -93,12 +94,27 @@ class Result:
     ledger: list
     trace: list
     note: str = ""
+    classes: list = field(default_factory=list)   # solutions partitioned by the solution concept's own equivalence
 
     @property
     def solution(self):
-        if len(self.solutions) != 1:
-            raise ValueError(f"{len(self.solutions)} solutions: selection is not declared")
-        return self.solutions[0]
+        """A representative, if the solutions form a single equivalence class under the task's solution concept."""
+        cls = self.classes or [[s] for s in self.solutions]
+        if len(cls) != 1:
+            raise ValueError(f"{len(cls)} inequivalent solutions: selection is not declared")
+        return cls[0][0]
+
+
+def partition(solutions, equivalent):
+    """Partition solutions by an equivalence relation supplied by the solution concept (None = identity)."""
+    classes = []
+    for s in solutions:
+        for c in classes:
+            if equivalent is not None and equivalent(c[0], s):
+                c.append(s); break
+        else:
+            classes.append([s])
+    return classes
 
 
 class Derivation:
@@ -235,7 +251,17 @@ class Derivation:
         claim = frozenset(claim)
         if not claim <= props:
             raise Rejected([("derivation", "claim", f"claimed {sorted(claim)} but the derivation certifies only {sorted(props)}")])
-        return Result(sols, props, self.ledger + ledger, trace)
+        eq = getattr(self.root, "equivalent", None)
+        return Result(sols, props, self.ledger + ledger, trace, classes=partition(sols, eq))
+
+    def clone(self):
+        """Independent copy for search: problems are shared (rules never mutate them); step records are copied."""
+        import copy
+        d = Derivation.__new__(Derivation)
+        d.root, d.nodes, d.ledger = self.root, list(self.nodes), list(self.ledger)
+        d.steps = [(r, copy.deepcopy(rec), list(dv)) for r, rec, dv in self.steps]
+        d.branches, d.terminal = self.branches, self.terminal
+        return d
 
 
 # ------------------------------------------------------------------ rule systems

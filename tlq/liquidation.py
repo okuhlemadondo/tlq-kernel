@@ -24,6 +24,14 @@ class Liquidation:
     form: str = "levels"
     kind: str = "liquidation"
 
+    def equivalent(self, s, t):
+        if "Q" in s and "Q" in t:
+            return bool(np.allclose(s["Q"], t["Q"], atol=1e-5 * max(1.0, self.Q0)))
+        if "controller" in s and "controller" in t:
+            grid = [(k, q, d) for k in range(self.N) for q in (self.Q0, self.Q0 / 3) for d in (-2.0, 0.0, 2.0)]
+            return all(abs(s["controller"](*g) - t["controller"](*g)) < 1e-8 for g in grid)
+        return False
+
 
 def ok(c, y, n):
     return (True, y) if c else (False, n)
