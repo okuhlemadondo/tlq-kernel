@@ -37,6 +37,7 @@ from .certificates import (
     moment_to_confidence_radius,
     moment_to_event,
     event_to_quadratic_regret_bound,
+    event_to_constrained_quadratic_objective_regret_bound,
     exact_kelly_hessian_spectral_norm,
     kelly_ratio_certificate_pushforward,
     project_kelly_exposure_certificate,

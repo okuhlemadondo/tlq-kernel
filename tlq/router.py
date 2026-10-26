@@ -6,7 +6,8 @@ Implements:
 - Factored score increment and self-normalized predictable-variation bound kappa_pred (Proposition 8.4e)
 - Guard 1 (Immediate Epistemic Collapse) & Guard 2 (Certified Expansion with Symmetric Dwell Reset, Theorem 8.4b)
 - Post-switch regime-shift drift diagnostic D_regime(t_j) (Theorem 8.4d)
-- End-to-End Vertical-to-Horizontal Composition (Theorem 9.1) with explicit 4-stage certificate chain
+- End-to-End Vertical-to-Horizontal Composition (Theorem 9.1) separating squared control error
+  from constrained quadratic objective regret (including the boundary normal-cone slope term).
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ from .certificates import (
     clamp_moment_pair_to_compact_box,
     kelly_ratio_certificate_pushforward,
     project_kelly_exposure_certificate,
-    event_to_quadratic_regret_bound,
+    event_to_constrained_quadratic_objective_regret_bound,
 )
 
 
@@ -188,8 +189,10 @@ def compose_end_to_end_certificate(
     eta_margin: float,
     third_abs_moment: float,
     xi_max: float | None = None,
+    f_true_abs_max: float | None = None,
 ) -> dict[str, Any]:
-    """Theorem 9.1 (Package B End-to-End Composition with Explicit 4-Stage Certificate Chain):
+    """Theorem 9.1 (Package B End-to-End Composition with Explicit Separation of Squared Control Error
+    vs. Constrained Quadratic Objective Regret):
     1. Stage 1 (Compact Input Moment Box Projection & Input EVENT Certificate):
        Derives xi_max = (1 - eta_margin) / lambda_max (if not passed), checks xi_max^2 >= sigma_min2 > 0,
        projects (f_hat, v_hat) onto D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2], and combines
@@ -201,9 +204,14 @@ def compose_end_to_end_certificate(
     3. Stage 3 (Clamped Exposure Projection to Output EVENT Certificate):
        Applies `project_kelly_exposure_certificate` (Pi_{[-Lambda_max, Lambda_max]}), using Moreau
        projection non-expansiveness (Lemma 2.2(3)) to contract the good-event radius to
-       r_out = min(r_raw, 2 * Lambda_max) and establish the almost-sure bound M_{out,max} = 2 * Lambda_max.
-    4. Stage 4 (Expected Quadratic Regret & Exact-Log Suboptimality):
-       Applies Lemma 7.1a(2) (`event_to_quadratic_regret_bound`) and adds the Stage 2b Taylor remainder.
+       r_out = min(r_raw, 2 * Lambda_max) and establish the almost-sure bound M_{out,max} = 2 * Lambda_max
+       relative to the CONSTRAINED oracle theta_quad* = Pi_{[-Lambda_max, Lambda_max]}(f_t / sigma_t^2).
+    4. Stage 4 (Squared Control Error, Boundary Clipping Slope Term, & Exact-Log Suboptimality):
+       Uses the exact constrained quadratic identity:
+         Q_t^{quad}(theta_quad*) - Q_t^{quad}(theta_t)
+           = (sigma_t^2 / 2) * (theta_t - theta_quad*)^2 + g_{bnd,t} * |theta_t - theta_quad*|,
+       where g_{bnd,t} = max(0, |f_t| - sigma_t^2 * Lambda_max) <= max(0, f_abs_bound - sigma_t^2 * Lambda_max)
+       (vanishing identically whenever theta_quad* is interior), and adds the Stage 2b Taylor remainder.
     """
     xi_max_eff = xi_max if xi_max is not None else (1.0 - eta_margin) / lambda_max
     box = clamp_moment_pair_to_compact_box(f_hat, v_hat, xi_max_eff, sigma_min2)
@@ -242,7 +250,21 @@ def compose_end_to_end_certificate(
     r_raw = proj_cert["r_raw"]
     r_out = proj_cert["r_out"]
     m_out_max = proj_cert["m_max"]
-    quad_loss_bound = event_to_quadratic_regret_bound(0.5 * sigma2_true, r_out, delta, m_out_max)
+
+    f_abs_bound = xi_max_eff if f_true_abs_max is None else min(xi_max_eff, max(0.0, f_true_abs_max))
+    boundary_slope_max = max(0.0, f_abs_bound - sigma2_true * lambda_max)
+
+    regret_decomp = event_to_constrained_quadratic_objective_regret_bound(
+        sigma2_true,
+        r_out,
+        delta,
+        m_out_max,
+        boundary_slope_max=boundary_slope_max,
+    )
+    quad_control_err = regret_decomp["quadratic_control_error_bound"]
+    boundary_regret = regret_decomp["boundary_clipping_regret_bound"]
+    constrained_quad_obj_regret = regret_decomp["constrained_quadratic_objective_regret_bound"]
+
     surrogate_bounds = exact_log_objective_gap_bounds(lambda_max, third_abs_moment, sigma2_true, eta_margin)
     return {
         "status": "CERTIFIED",
@@ -257,7 +279,11 @@ def compose_end_to_end_certificate(
         "m_out_max": m_out_max,
         "theta_raw": proj_cert["theta_raw"],
         "theta_clamped": proj_cert["theta_clamped"],
-        "quadratic_control_loss_bound": quad_loss_bound,
+        "boundary_slope_max": boundary_slope_max,
+        "quadratic_control_error_bound": quad_control_err,
+        "quadratic_control_loss_bound": quad_control_err,
+        "boundary_clipping_regret_bound": boundary_regret,
+        "constrained_quadratic_objective_regret_bound": constrained_quad_obj_regret,
         "surrogate_stage2b_remainder": surrogate_bounds["taylor_bound"],
-        "total_exact_log_suboptimality_bound": quad_loss_bound + surrogate_bounds["taylor_bound"],
+        "total_exact_log_suboptimality_bound": constrained_quad_obj_regret + surrogate_bounds["taylor_bound"],
     }

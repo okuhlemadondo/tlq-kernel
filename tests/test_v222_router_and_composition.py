@@ -294,7 +294,7 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_four_stage_composition
 
     assert len(router.switch_epochs) <= max_switches_bound(horizon_n, tau_dwell=4)
 
-    # Theorem 9.1 composition: xi_max = (1 - 0.2) / 0.8 = 1.0, so D_bdd = [-1.0, 1.0] x [0.20, 1.00]
+    # Theorem 9.1 composition (Boundary-clamped regime): xi_max = (1 - 0.2) / 0.8 = 1.0, so D_bdd = [-1.0, 1.0] x [0.20, 1.00]
     cert_ok = compose_end_to_end_certificate(
         f_hat=1.25,       # exceeds xi_max=1.0 -> clamped to 1.0 in Stage 1
         v_hat=0.45,
@@ -316,7 +316,52 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_four_stage_composition
     assert abs(cert_ok["theta_clamped"] - 0.8) <= 1e-12
     assert abs(cert_ok["m_out_max"] - 1.6) <= 1e-12
     assert cert_ok["r_out"] <= cert_ok["m_out_max"]
-    assert cert_ok["total_exact_log_suboptimality_bound"] > cert_ok["quadratic_control_loss_bound"]
+    # Verify exact separation of squared control error vs. constrained quadratic objective regret
+    expected_bnd_slope = max(0.0, 1.0 - 0.45 * 0.8)  # 0.64 > 0
+    assert abs(cert_ok["boundary_slope_max"] - expected_bnd_slope) <= 1e-12
+    assert cert_ok["boundary_clipping_regret_bound"] > 0.0
+    assert abs(
+        cert_ok["constrained_quadratic_objective_regret_bound"]
+        - (cert_ok["quadratic_control_error_bound"] + cert_ok["boundary_clipping_regret_bound"])
+    ) <= 1e-12
+    assert abs(
+        cert_ok["total_exact_log_suboptimality_bound"]
+        - (cert_ok["constrained_quadratic_objective_regret_bound"] + cert_ok["surrogate_stage2b_remainder"])
+    ) <= 1e-12
+
+    # Verify exact algebraic identity: Q_quad(theta_quad*) - Q_quad(theta) == (sigma^2/2)*(theta - theta_quad*)^2 + g_bnd*|theta - theta_quad*|
+    for f_true in (-0.95, -0.36, 0.0, 0.20, 0.85):
+        sigma2_val = 0.45
+        l_max = 0.8
+        theta_quad_star = clamp(f_true / sigma2_val, -l_max, l_max)
+        g_bnd = max(0.0, abs(f_true) - sigma2_val * l_max)
+        for theta_test in (-0.8, -0.35, 0.0, 0.4, 0.8):
+            q_star = f_true * theta_quad_star - 0.5 * sigma2_val * (theta_quad_star ** 2)
+            q_test = f_true * theta_test - 0.5 * sigma2_val * (theta_test ** 2)
+            exact_rhs = 0.5 * sigma2_val * ((theta_test - theta_quad_star) ** 2) + g_bnd * abs(theta_test - theta_quad_star)
+            assert abs((q_star - q_test) - exact_rhs) <= 1e-14
+
+    # Interior regime (f_true_abs_max <= sigma2_true * lambda_max => boundary_slope_max == 0, objective regret == control error)
+    cert_interior = compose_end_to_end_certificate(
+        f_hat=0.15,
+        v_hat=0.45,
+        eps_moment=0.005,
+        nu_subg=0.01,
+        delta=0.05,
+        sigma_min2=0.20,
+        sigma2_true=0.45,
+        lambda_max=0.8,
+        eta_margin=0.2,
+        third_abs_moment=0.04,
+        f_true_abs_max=0.30,  # 0.30 <= 0.45 * 0.8 = 0.36 -> interior optimum
+    )
+    assert cert_interior["status"] == "CERTIFIED"
+    assert cert_interior["boundary_slope_max"] == 0.0
+    assert cert_interior["boundary_clipping_regret_bound"] == 0.0
+    assert abs(
+        cert_interior["constrained_quadratic_objective_regret_bound"]
+        - cert_interior["quadratic_control_error_bound"]
+    ) <= 1e-15
 
     # Stage 2 domain violation (v_clamped - 2*r_in < sigma_min2) triggers fallback to G_null
     cert_fail = compose_end_to_end_certificate(

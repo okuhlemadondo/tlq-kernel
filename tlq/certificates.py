@@ -5,7 +5,8 @@ Implements:
   EventCert (high-probability ball + verified compact-domain almost-sure bound M_max < inf), UnestablishedCert
 - Compact input moment box D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2] projection & diameter M_{in,max}
 - Lemma 7.1a(1): Repaired (1/2)-net sub-Gaussian Euclidean norm concentration radius r_delta^{subG}
-- Lemma 7.1a(2): Expected quadratic control regret bound from EVENT(r, delta, M_max)
+- Lemma 7.1a(2): Expected curvature-weighted squared control-error bound (`event_to_quadratic_regret_bound`)
+  and exact constrained quadratic objective-regret bound (`event_to_constrained_quadratic_objective_regret_bound`)
 - Proposition 7.2(2): Two-stage ratio pushforward:
     Stage A (`kelly_ratio_certificate_pushforward`): raw ratio f/v -> CONF_RADIUS(r_raw, delta)
     Stage B (`project_kelly_exposure_certificate`): clamping Pi_{[-Lambda_max, Lambda_max]}(f/v) -> EVENT(min(r_raw, 2*Lambda_max), delta, 2*Lambda_max)
@@ -152,13 +153,44 @@ def event_to_quadratic_regret_bound(
     delta: float,
     m_max: float,
 ) -> float:
-    """Lemma 7.1a(2): Expected quadratic control regret upper bound from EVENT(r, delta, M_max):
+    """Lemma 7.1a(2a): Expected curvature-weighted squared control-error bound from EVENT(r, delta, M_max):
       E[||u_hat - u*||_Phi^2 | x_t, w_t] <= lambda_max(Phi) * ((1 - delta) * r^2 + delta * M_max^2).
-    Requires a finite positive almost-sure error diameter m_max > 0.
+    Equals the constrained quadratic objective regret when the constrained optimum u* is interior;
+    when u* lies on the boundary of U(x_t), see `event_to_constrained_quadratic_objective_regret_bound`.
     """
     if not math.isfinite(m_max) or m_max < 0.0 or not (0.0 <= delta <= 1.0):
         raise ValueError(f"event_to_quadratic_regret_bound requires finite m_max >= 0 and delta in [0, 1], got m_max={m_max}, delta={delta}")
     return lambda_max_phi * ((1.0 - delta) * (r * r) + delta * (m_max * m_max))
+
+
+def event_to_constrained_quadratic_objective_regret_bound(
+    sigma2: float,
+    r: float,
+    delta: float,
+    m_max: float,
+    boundary_slope_max: float = 0.0,
+) -> dict[str, float]:
+    """Lemma 7.1a(2b) & Lemma 2.2(1): Exact constrained quadratic objective-regret bound on [-Lambda_max, Lambda_max].
+    For any theta in [-Lambda_max, Lambda_max] and constrained optimum theta_quad* = Pi_{[-Lambda_max, Lambda_max]}(f / sigma^2),
+    completing the square around theta_quad* yields the exact identity:
+      Q_t^{quad}(theta_quad*) - Q_t^{quad}(theta)
+        = (sigma^2 / 2) * (theta - theta_quad*)^2 + g_bnd * |theta - theta_quad*|,
+    where g_bnd := |f - sigma^2 * theta_quad*| = max(0, |f| - sigma^2 * Lambda_max) <= boundary_slope_max
+    (with g_bnd == 0 whenever theta_quad* is interior).
+    Taking expectations over EVENT(r, delta, M_max) yields:
+      E[Q_t^{quad}(theta_quad*) - Q_t^{quad}(theta_hat)]
+        <= (sigma^2 / 2) * ((1 - delta) * r^2 + delta * M_max^2)
+           + boundary_slope_max * ((1 - delta) * r + delta * M_max).
+    """
+    if not math.isfinite(m_max) or m_max < 0.0 or not (0.0 <= delta <= 1.0) or boundary_slope_max < 0.0:
+        raise ValueError("Invalid parameters for event_to_constrained_quadratic_objective_regret_bound")
+    control_error_term = event_to_quadratic_regret_bound(0.5 * sigma2, r, delta, m_max)
+    boundary_slope_term = boundary_slope_max * ((1.0 - delta) * r + delta * m_max)
+    return {
+        "quadratic_control_error_bound": control_error_term,
+        "boundary_clipping_regret_bound": boundary_slope_term,
+        "constrained_quadratic_objective_regret_bound": control_error_term + boundary_slope_term,
+    }
 
 
 def exact_kelly_hessian_spectral_norm(f: float, v: float) -> float:
@@ -178,10 +210,8 @@ def kelly_ratio_certificate_pushforward(
     """Proposition 7.2(2) Stage A (Unclamped Ratio Confidence Pushforward):
     Computes conservative analytical box upper bounds L_hat_o and M_hat_{H,o} on the observable
     Euclidean ball B_{2r}(f_hat, v_hat) for the raw ratio o(f, v) = f / v on R x [sigma_min2, inf).
-    Because the raw ratio f/v is not clamped to [-Lambda_max, Lambda_max], this stage returns
-    `status="CONF_RADIUS"` with high-probability radius `r_raw` (and `r_out = r_raw`) without claiming
-    an action-interval almost-sure bound `2 * Lambda_max`. To obtain a bounded `EVENT` certificate on
-    [-Lambda_max, Lambda_max], pass the result to `project_kelly_exposure_certificate`.
+    Returns `status="CONF_RADIUS"` with high-probability radius `r_raw` without claiming an
+    action-interval almost-sure bound `2 * Lambda_max`.
     """
     v_min_ball = v_hat - 2.0 * r
     if v_min_ball < sigma_min2:
@@ -210,10 +240,6 @@ def project_kelly_exposure_certificate(
     """Proposition 7.2(2) Stage B (Clamped Action Projection to Bounded EVENT Certificate):
     Applies the orthogonal interval projection Pi_{[-Lambda_max, Lambda_max]} to the unclamped
     ratio certificate from Stage A.
-    - By Moreau non-expansiveness (Lemma 2.2(3)), for any target theta* in [-Lambda_max, Lambda_max],
-      |Pi(theta_raw) - theta*| <= |theta_raw - theta_raw*| <= r_raw on the (1 - delta)-probability good event.
-    - Because both Pi(theta_raw) and theta* lie in [-Lambda_max, Lambda_max] on all of Omega,
-      |Pi(theta_raw) - theta*| <= M_{out,max} := 2 * Lambda_max holds almost surely (including on the bad event).
     """
     if raw_cert.get("status") == "UNESTABLISHED":
         return dict(raw_cert)
