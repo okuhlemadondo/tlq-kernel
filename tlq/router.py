@@ -6,7 +6,7 @@ Implements:
 - Factored score increment and self-normalized predictable-variation bound kappa_pred (Proposition 8.4e)
 - Guard 1 (Immediate Epistemic Collapse) & Guard 2 (Certified Expansion with Symmetric Dwell Reset, Theorem 8.4b)
 - Post-switch regime-shift drift diagnostic D_regime(t_j) (Theorem 8.4d)
-- End-to-End Vertical-to-Horizontal Composition (Theorem 9.1)
+- End-to-End Vertical-to-Horizontal Composition (Theorem 9.1) with explicit 4-stage certificate chain
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
@@ -23,7 +23,9 @@ from .vertical import (
 )
 from .certificates import (
     sub_gaussian_event_radius,
+    clamp_moment_pair_to_compact_box,
     kelly_ratio_certificate_pushforward,
+    project_kelly_exposure_certificate,
     event_to_quadratic_regret_bound,
 )
 
@@ -185,28 +187,76 @@ def compose_end_to_end_certificate(
     lambda_max: float,
     eta_margin: float,
     third_abs_moment: float,
+    xi_max: float | None = None,
 ) -> dict[str, Any]:
-    """Theorem 9.1 (Package B End-to-End Composition):
-    Chains Lemma 7.1a(1) -> Proposition 7.2(2) -> Lemma 7.1a(2) -> Theorem 2.4(2) + Theorem 5.2.
+    """Theorem 9.1 (Package B End-to-End Composition with Explicit 4-Stage Certificate Chain):
+    1. Stage 1 (Compact Input Moment Box Projection & Input EVENT Certificate):
+       Derives xi_max = (1 - eta_margin) / lambda_max (if not passed), checks xi_max^2 >= sigma_min2 > 0,
+       projects (f_hat, v_hat) onto D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2], and combines
+       Lemma 7.1a(1)'s sub-Gaussian radius r_in with D_bdd's finite diameter M_{in,max} to form a valid
+       input EVENT(min(r_in, M_{in,max}), delta, M_{in,max}) certificate.
+    2. Stage 2 (Unclamped Ratio Confidence Pushforward):
+       Applies `kelly_ratio_certificate_pushforward` on B_{2*r_in_eff}(f_clamped, v_clamped), producing
+       either UNESTABLISHED(DOMAIN_VIOLATION) or a raw-ratio CONF_RADIUS(r_raw, delta) certificate.
+    3. Stage 3 (Clamped Exposure Projection to Output EVENT Certificate):
+       Applies `project_kelly_exposure_certificate` (Pi_{[-Lambda_max, Lambda_max]}), using Moreau
+       projection non-expansiveness (Lemma 2.2(3)) to contract the good-event radius to
+       r_out = min(r_raw, 2 * Lambda_max) and establish the almost-sure bound M_{out,max} = 2 * Lambda_max.
+    4. Stage 4 (Expected Quadratic Regret & Exact-Log Suboptimality):
+       Applies Lemma 7.1a(2) (`event_to_quadratic_regret_bound`) and adds the Stage 2b Taylor remainder.
     """
-    rad_in = sub_gaussian_event_radius(eps_moment, 2, nu_subg, delta)["exact_net_radius"]
-    push = kelly_ratio_certificate_pushforward(f_hat, v_hat, rad_in, sigma_min2, delta=delta, lambda_max=lambda_max)
-    if push["status"] == "UNESTABLISHED":
+    xi_max_eff = xi_max if xi_max is not None else (1.0 - eta_margin) / lambda_max
+    box = clamp_moment_pair_to_compact_box(f_hat, v_hat, xi_max_eff, sigma_min2)
+    if box["status"] == "UNESTABLISHED":
         return {
             "status": "UNESTABLISHED",
-            "code": push["code"],
+            "code": box["code"],
             "fallback_graph": "G_null",
             "fallback_exposure": 0.0,
         }
-    r_out = push["r_out"]
-    quad_loss_bound = event_to_quadratic_regret_bound(0.5 * sigma2_true, r_out, delta, 2.0 * lambda_max)
+    f_clamped = box["f_clamped"]
+    v_clamped = box["v_clamped"]
+    m_in_max = box["m_in_max"]
+
+    rad_in_unbounded = sub_gaussian_event_radius(eps_moment, 2, nu_subg, delta)["exact_net_radius"]
+    r_in_eff = min(rad_in_unbounded, m_in_max)
+
+    raw_push = kelly_ratio_certificate_pushforward(f_clamped, v_clamped, r_in_eff, sigma_min2, delta=delta)
+    if raw_push["status"] == "UNESTABLISHED":
+        return {
+            "status": "UNESTABLISHED",
+            "code": raw_push["code"],
+            "fallback_graph": "G_null",
+            "fallback_exposure": 0.0,
+        }
+
+    proj_cert = project_kelly_exposure_certificate(raw_push, lambda_max)
+    if proj_cert["status"] == "UNESTABLISHED":
+        return {
+            "status": "UNESTABLISHED",
+            "code": proj_cert["code"],
+            "fallback_graph": "G_null",
+            "fallback_exposure": 0.0,
+        }
+
+    r_raw = proj_cert["r_raw"]
+    r_out = proj_cert["r_out"]
+    m_out_max = proj_cert["m_max"]
+    quad_loss_bound = event_to_quadratic_regret_bound(0.5 * sigma2_true, r_out, delta, m_out_max)
     surrogate_bounds = exact_log_objective_gap_bounds(lambda_max, third_abs_moment, sigma2_true, eta_margin)
-    theta_clamped = clamp(f_hat / v_hat, -lambda_max, lambda_max)
     return {
         "status": "CERTIFIED",
-        "r_in": rad_in,
+        "f_clamped": f_clamped,
+        "v_clamped": v_clamped,
+        "m_in_max": m_in_max,
+        "r_in": r_in_eff,
+        "raw_ratio_status": raw_push["status"],
+        "r_raw": r_raw,
+        "projected_status": proj_cert["status"],
         "r_out": r_out,
-        "theta_clamped": theta_clamped,
+        "m_out_max": m_out_max,
+        "theta_raw": proj_cert["theta_raw"],
+        "theta_clamped": proj_cert["theta_clamped"],
         "quadratic_control_loss_bound": quad_loss_bound,
         "surrogate_stage2b_remainder": surrogate_bounds["taylor_bound"],
         "total_exact_log_suboptimality_bound": quad_loss_bound + surrogate_bounds["taylor_bound"],

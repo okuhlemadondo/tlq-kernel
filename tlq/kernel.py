@@ -5,6 +5,7 @@ and named rejection machinery used across vertical problem rewrites and certific
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+import math
 from typing import Any, Callable, Iterable
 
 S, L, D, V = "S", "L", "D", "V"
@@ -116,6 +117,14 @@ class Derivation:
         if not ok:
             raise Rejected([(rule.name, "applicability", why)])
         eps_rho = float(rule.slack(P)) if rule.slack is not None else 0.0
+        if not math.isfinite(eps_rho) or eps_rho < 0.0:
+            raise Rejected([
+                (
+                    rule.name,
+                    "slack",
+                    f"invalid rewrite slack {eps_rho}: Definition 5.1 requires a finite non-negative error bound eps_rho >= 0",
+                )
+            ])
         rec = StepRecord(rule.name, getattr(P, "kind", type(P).__name__), slack_eps=eps_rho)
         failures, deferred, props = [], [], set(rule.preserves)
         for ob in rule.obligations(P):
@@ -163,6 +172,10 @@ class Derivation:
         return self
 
     def fan(self, rule: Transformation, plan: Callable[[int, "Derivation"], "Derivation"]):
+        if self.branches or self.terminal:
+            raise Rejected([(rule.name, "structure", "derivation already branched or terminated")])
+        if not rule.fanout:
+            raise Rejected([(rule.name, "structure", "use .apply() for non-fan-out rules")])
         P = self.current
         rec, deferred = self._check(rule, P)
         subs = [plan(i, Derivation(Q, ledger=[])) for i, Q in enumerate(rule.forward(P))]

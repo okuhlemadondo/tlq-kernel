@@ -91,6 +91,7 @@ def test_4a_all_pairs_router_concentration_across_overlapping_windows():
 
                         emp_diff_sum += factored_score_increment(th_a, th_b, xi)
                         loss_a = 0.5 * s2 * ((th_a - th_star) ** 2)
+                        loss_b = 0.5 * s2 * ((th_b - theta_history[b][tau] + th_b - th_star) ** 2)
                         loss_b = 0.5 * s2 * ((th_b - th_star) ** 2)
                         true_loss_diff_sum += loss_a - loss_b
 
@@ -281,12 +282,11 @@ def test_5b_gaussian_mixture_supermartingale_and_self_normalized_kappa_pred():
     assert emp_viol_rate <= delta
 
 
-def test_theorem_8_4b_switching_frequency_and_theorem_9_1_composition():
-    """Verifies Theorem 8.4b symmetric dwell reset switching bound and Theorem 9.1 end-to-end composition."""
+def test_theorem_8_4b_switching_frequency_and_theorem_9_1_four_stage_composition():
+    """Verifies Theorem 8.4b symmetric dwell reset switching bound and Theorem 9.1 4-stage composition (Findings 1 & 2)."""
     router = GuardedRouter(tau_dwell=4, tau_hyst=0.01)
     horizon_n = 50
     for t in range(horizon_n):
-        # Alternate adversarial pressure to switch and collapse every epoch
         if t % 2 == 0:
             router.step(t, active_cert_valid=True, collapse_gain_to_null=0.0, candidate_gains={"G_ema": (True, 0.05)})
         else:
@@ -294,22 +294,31 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_composition():
 
     assert len(router.switch_epochs) <= max_switches_bound(horizon_n, tau_dwell=4)
 
-    # Theorem 9.1 composition: valid interior vs. domain-violating fallback to G_null
+    # Theorem 9.1 composition: xi_max = (1 - 0.2) / 0.8 = 1.0, so D_bdd = [-1.0, 1.0] x [0.20, 1.00]
     cert_ok = compose_end_to_end_certificate(
-        f_hat=0.12,
+        f_hat=1.25,       # exceeds xi_max=1.0 -> clamped to 1.0 in Stage 1
         v_hat=0.45,
         eps_moment=0.005,
         nu_subg=0.01,
         delta=0.05,
         sigma_min2=0.20,
         sigma2_true=0.45,
-        lambda_max=1.6,
+        lambda_max=0.8,
         eta_margin=0.2,
         third_abs_moment=0.04,
     )
     assert cert_ok["status"] == "CERTIFIED"
+    assert abs(cert_ok["f_clamped"] - 1.0) <= 1e-12
+    assert abs(cert_ok["m_in_max"] - math.hypot(2.0, 1.0 - 0.20)) <= 1e-12
+    assert cert_ok["raw_ratio_status"] == "CONF_RADIUS"
+    assert cert_ok["projected_status"] == "EVENT"
+    assert cert_ok["theta_raw"] > 0.8
+    assert abs(cert_ok["theta_clamped"] - 0.8) <= 1e-12
+    assert abs(cert_ok["m_out_max"] - 1.6) <= 1e-12
+    assert cert_ok["r_out"] <= cert_ok["m_out_max"]
     assert cert_ok["total_exact_log_suboptimality_bound"] > cert_ok["quadratic_control_loss_bound"]
 
+    # Stage 2 domain violation (v_clamped - 2*r_in < sigma_min2) triggers fallback to G_null
     cert_fail = compose_end_to_end_certificate(
         f_hat=0.12,
         v_hat=0.21,
@@ -318,7 +327,7 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_composition():
         delta=0.05,
         sigma_min2=0.20,
         sigma2_true=0.21,
-        lambda_max=1.6,
+        lambda_max=0.8,
         eta_margin=0.2,
         third_abs_moment=0.04,
     )
@@ -326,3 +335,20 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_composition():
     assert cert_fail["code"] == "DOMAIN_VIOLATION"
     assert cert_fail["fallback_graph"] == "G_null"
     assert cert_fail["fallback_exposure"] == 0.0
+
+    # Stage 1 invalid moment box (xi_max^2 < sigma_min2) triggers INVALID_MOMENT_BOX fallback
+    cert_bad_box = compose_end_to_end_certificate(
+        f_hat=0.12,
+        v_hat=0.25,
+        eps_moment=0.005,
+        nu_subg=0.01,
+        delta=0.05,
+        sigma_min2=0.50,
+        sigma2_true=0.50,
+        lambda_max=1.6,
+        eta_margin=0.2,
+        third_abs_moment=0.04,
+        xi_max=0.5,       # xi_max^2 = 0.25 < sigma_min2 = 0.50
+    )
+    assert cert_bad_box["status"] == "UNESTABLISHED"
+    assert cert_bad_box["code"] == "INVALID_MOMENT_BOX"

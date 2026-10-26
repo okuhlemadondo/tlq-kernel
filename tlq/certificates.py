@@ -1,10 +1,14 @@
 """Section 7: Epistemic Certificate Algebra (K) — Definition 7.1, Lemma 7.1a, and Proposition 7.2.
 
 Implements:
-- ExactCert, MomentCert, EventCert, UnestablishedCert
+- ExactCert, MomentCert, ConfidenceRadiusCert (high-probability ball without an a.s. diameter claim),
+  EventCert (high-probability ball + verified compact-domain almost-sure bound M_max < inf), UnestablishedCert
+- Compact input moment box D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2] projection & diameter M_{in,max}
 - Lemma 7.1a(1): Repaired (1/2)-net sub-Gaussian Euclidean norm concentration radius r_delta^{subG}
 - Lemma 7.1a(2): Expected quadratic control regret bound from EVENT(r, delta, M_max)
-- Proposition 7.2(1)-(3): Guarded KellyTarget pushforward, serial composition, and 4th-moment Cauchy-Schwarz bounds
+- Proposition 7.2(2): Two-stage ratio pushforward:
+    Stage A (`kelly_ratio_certificate_pushforward`): raw ratio f/v -> CONF_RADIUS(r_raw, delta)
+    Stage B (`project_kelly_exposure_certificate`): clamping Pi_{[-Lambda_max, Lambda_max]}(f/v) -> EVENT(min(r_raw, 2*Lambda_max), delta, 2*Lambda_max)
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -27,7 +31,18 @@ class MomentCert:
 
 
 @dataclass(frozen=True)
+class ConfidenceRadiusCert:
+    """High-probability error radius P(||z_hat - z*||_2 <= r) >= 1 - delta without an almost-sure diameter claim."""
+    r: float
+    delta: float
+    L_hat_o: float = 1.0
+    M_hat_Ho: float = 0.0
+    status: str = "CONF_RADIUS"
+
+
+@dataclass(frozen=True)
 class EventCert:
+    """Bounded-domain high-probability certificate: P(||z_hat - z*||_2 <= r) >= 1 - delta AND ||z_hat - z*||_2 <= m_max a.s."""
     r: float
     delta: float
     m_max: float
@@ -42,7 +57,7 @@ class UnestablishedCert:
     status: str = "UNESTABLISHED"
 
 
-Certificate = Union[ExactCert, MomentCert, EventCert, UnestablishedCert]
+Certificate = Union[ExactCert, MomentCert, ConfidenceRadiusCert, EventCert, UnestablishedCert]
 
 
 def sub_gaussian_event_radius(
@@ -69,12 +84,66 @@ def sub_gaussian_event_radius(
     }
 
 
-def moment_to_event(cert: MomentCert, delta: float, m_max: float) -> EventCert | UnestablishedCert:
-    """Converts a MomentCert with sub-Gaussian parameter nu_subg > 0 into an EventCert via Lemma 7.1a(1)."""
+def compact_moment_box_diameter(xi_max: float, sigma_min2: float) -> float:
+    """Computes the Euclidean diameter M_{in,max} of the compact moment box
+    D_bdd(Drift (x) Var) = [-xi_max, xi_max] x [sigma_min2, xi_max^2] under bounded shock support |xi| <= xi_max.
+    """
+    v_max = xi_max * xi_max
+    if xi_max <= 0.0 or sigma_min2 <= 0.0 or v_max < sigma_min2:
+        raise ValueError(f"Invalid compact moment box parameters: xi_max={xi_max}, sigma_min2={sigma_min2} (requires xi_max^2 >= sigma_min2 > 0)")
+    return math.hypot(2.0 * xi_max, v_max - sigma_min2)
+
+
+def clamp_moment_pair_to_compact_box(
+    f_hat: float,
+    v_hat: float,
+    xi_max: float,
+    sigma_min2: float,
+) -> dict[str, Any]:
+    """Orthogonally projects an input moment estimate (f_hat, v_hat) onto the compact moment box
+    D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2].
+    Because the true causal moments (f_bar_t, sigma2_bar_t) lie in D_bdd whenever |xi_{t+1}| <= xi_max a.s.,
+    orthogonal projection onto the convex box D_bdd is non-expansive (preserving any high-probability
+    confidence radius r_in) and establishes the almost-sure error diameter M_{in,max} = diam_2(D_bdd).
+    """
+    v_max = xi_max * xi_max
+    if xi_max <= 0.0 or sigma_min2 <= 0.0 or v_max < sigma_min2:
+        return {"status": "UNESTABLISHED", "code": "INVALID_MOMENT_BOX"}
+    f_clamped = max(-xi_max, min(xi_max, f_hat))
+    v_clamped = max(sigma_min2, min(v_max, v_hat))
+    m_in_max = math.hypot(2.0 * xi_max, v_max - sigma_min2)
+    return {
+        "status": "OK",
+        "f_clamped": f_clamped,
+        "v_clamped": v_clamped,
+        "m_in_max": m_in_max,
+    }
+
+
+def moment_to_confidence_radius(cert: MomentCert, delta: float) -> Union[ConfidenceRadiusCert, UnestablishedCert]:
+    """Converts a MomentCert with sub-Gaussian parameter nu_subg >= 0 into a ConfidenceRadiusCert via Lemma 7.1a(1)
+    (high-probability ball only; does NOT assert an almost-sure diameter M_max).
+    """
     if delta <= 0.0 or delta >= 1.0 or cert.nu_subg < 0.0:
         return UnestablishedCert("TAIL_FAILURE")
     rad = sub_gaussian_event_radius(cert.eps, cert.dimension, cert.nu_subg, delta)["exact_net_radius"]
-    return EventCert(r=rad, delta=delta, m_max=m_max)
+    return ConfidenceRadiusCert(r=rad, delta=delta)
+
+
+def moment_to_event(
+    cert: MomentCert,
+    delta: float,
+    m_max: float | None = None,
+) -> Union[EventCert, UnestablishedCert]:
+    """Upgrades a MomentCert into a bounded EventCert via Lemma 7.1a(1) ONLY when an explicit finite
+    almost-sure error bound m_max > 0 (e.g., from a compact domain clamp) is supplied.
+    """
+    if delta <= 0.0 or delta >= 1.0 or cert.nu_subg < 0.0:
+        return UnestablishedCert("TAIL_FAILURE")
+    if m_max is None or not math.isfinite(m_max) or m_max <= 0.0:
+        return UnestablishedCert("MISSING_AS_BOUND")
+    rad = sub_gaussian_event_radius(cert.eps, cert.dimension, cert.nu_subg, delta)["exact_net_radius"]
+    return EventCert(r=min(rad, m_max), delta=delta, m_max=m_max)
 
 
 def event_to_quadratic_regret_bound(
@@ -85,7 +154,10 @@ def event_to_quadratic_regret_bound(
 ) -> float:
     """Lemma 7.1a(2): Expected quadratic control regret upper bound from EVENT(r, delta, M_max):
       E[||u_hat - u*||_Phi^2 | x_t, w_t] <= lambda_max(Phi) * ((1 - delta) * r^2 + delta * M_max^2).
+    Requires a finite positive almost-sure error diameter m_max > 0.
     """
+    if not math.isfinite(m_max) or m_max < 0.0 or not (0.0 <= delta <= 1.0):
+        raise ValueError(f"event_to_quadratic_regret_bound requires finite m_max >= 0 and delta in [0, 1], got m_max={m_max}, delta={delta}")
     return lambda_max_phi * ((1.0 - delta) * (r * r) + delta * (m_max * m_max))
 
 
@@ -102,10 +174,14 @@ def kelly_ratio_certificate_pushforward(
     r: float,
     sigma_min2: float,
     delta: float = 0.05,
-    lambda_max: float = 1.0,
 ) -> dict[str, Any]:
-    """Proposition 7.2(2): Conservative analytical box upper bounds L_hat_o and M_hat_{H,o}
-    on the observable Euclidean ball B_{2r}(f_hat, v_hat) for o(f, v) = f / v on R x [sigma_min2, inf).
+    """Proposition 7.2(2) Stage A (Unclamped Ratio Confidence Pushforward):
+    Computes conservative analytical box upper bounds L_hat_o and M_hat_{H,o} on the observable
+    Euclidean ball B_{2r}(f_hat, v_hat) for the raw ratio o(f, v) = f / v on R x [sigma_min2, inf).
+    Because the raw ratio f/v is not clamped to [-Lambda_max, Lambda_max], this stage returns
+    `status="CONF_RADIUS"` with high-probability radius `r_raw` (and `r_out = r_raw`) without claiming
+    an action-interval almost-sure bound `2 * Lambda_max`. To obtain a bounded `EVENT` certificate on
+    [-Lambda_max, Lambda_max], pass the result to `project_kelly_exposure_certificate`.
     """
     v_min_ball = v_hat - 2.0 * r
     if v_min_ball < sigma_min2:
@@ -115,14 +191,50 @@ def kelly_ratio_certificate_pushforward(
     b = 1.0 / (v_min_ball * v_min_ball)
     c = (2.0 * f_max_ball) / (v_min_ball * v_min_ball * v_min_ball)
     m_hat_ho = 0.5 * (c + math.sqrt(c * c + 4.0 * b * b))
-    r_out = l_hat_o * r + 0.5 * m_hat_ho * r * r
+    r_raw = l_hat_o * r + 0.5 * m_hat_ho * r * r
     return {
-        "status": "EVENT",
-        "r_out": r_out,
+        "status": "CONF_RADIUS",
+        "theta_raw": f_hat / v_hat,
+        "r_raw": r_raw,
+        "r_out": r_raw,
         "L_hat_o": l_hat_o,
         "M_hat_Ho": m_hat_ho,
         "delta": delta,
-        "m_max": 2.0 * lambda_max,
+    }
+
+
+def project_kelly_exposure_certificate(
+    raw_cert: dict[str, Any],
+    lambda_max: float,
+) -> dict[str, Any]:
+    """Proposition 7.2(2) Stage B (Clamped Action Projection to Bounded EVENT Certificate):
+    Applies the orthogonal interval projection Pi_{[-Lambda_max, Lambda_max]} to the unclamped
+    ratio certificate from Stage A.
+    - By Moreau non-expansiveness (Lemma 2.2(3)), for any target theta* in [-Lambda_max, Lambda_max],
+      |Pi(theta_raw) - theta*| <= |theta_raw - theta_raw*| <= r_raw on the (1 - delta)-probability good event.
+    - Because both Pi(theta_raw) and theta* lie in [-Lambda_max, Lambda_max] on all of Omega,
+      |Pi(theta_raw) - theta*| <= M_{out,max} := 2 * Lambda_max holds almost surely (including on the bad event).
+    """
+    if raw_cert.get("status") == "UNESTABLISHED":
+        return dict(raw_cert)
+    if raw_cert.get("status") != "CONF_RADIUS" or not math.isfinite(lambda_max) or lambda_max <= 0.0:
+        return {"status": "UNESTABLISHED", "code": "INVALID_PROJECTION_CONTRACT"}
+    theta_raw = float(raw_cert["theta_raw"])
+    r_raw = float(raw_cert["r_raw"])
+    delta = float(raw_cert["delta"])
+    m_out_max = 2.0 * lambda_max
+    theta_clamped = max(-lambda_max, min(lambda_max, theta_raw))
+    r_proj = min(r_raw, m_out_max)
+    return {
+        "status": "EVENT",
+        "theta_raw": theta_raw,
+        "theta_clamped": theta_clamped,
+        "r_raw": r_raw,
+        "r_out": r_proj,
+        "delta": delta,
+        "m_max": m_out_max,
+        "L_hat_o": raw_cert["L_hat_o"],
+        "M_hat_Ho": raw_cert["M_hat_Ho"],
     }
 
 

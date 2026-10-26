@@ -1,7 +1,9 @@
-"""Tests for Sections 3 and 7: CD(Sigma) Multicategory, Proposition 3.3, Lemma 7.1a, and Proposition 7.2 (Checks 2A, 3A, 3B, 6A, 6C)."""
+"""Tests for Sections 3 and 7: CD(Sigma) Multicategory, Proposition 3.3, Lemma 7.1a, and Proposition 7.2 (Checks 2A, 3A, 3B, 6A, 6C, and Issue A/Finding 1-2 regressions)."""
 from __future__ import annotations
 import math
+import pytest
 from tlq.hypergraph import (
+    Sort,
     WEALTH_SORT,
     DRIFT_SORT,
     make_var_sort,
@@ -9,10 +11,16 @@ from tlq.hypergraph import (
     verify_shift_register_impossibility,
 )
 from tlq.certificates import (
+    MomentCert,
     sub_gaussian_event_radius,
+    compact_moment_box_diameter,
+    clamp_moment_pair_to_compact_box,
+    moment_to_confidence_radius,
+    moment_to_event,
     event_to_quadratic_regret_bound,
     exact_kelly_hessian_spectral_norm,
     kelly_ratio_certificate_pushforward,
+    project_kelly_exposure_certificate,
     push_scalar,
     push_split_reconverge,
 )
@@ -59,13 +67,45 @@ def test_2a_shift_register_impossibility_and_cd_sigma_port_grafting():
     assert abs(val_left[0] - val_right[0]) <= 1e-14
 
 
-def test_3a_decoupled_event_stratum_domain_guard_and_kelly_pushforward_bounds():
-    """Check 3A: Verifies boundary-target EVENT validity, DOMAIN_VIOLATION guard, and gradient/Hessian bounds across 2,000 balls."""
+def test_issue_a_sort_contract_rejects_same_name_incompatible_validators():
+    """Issue A Regression: Same-named sorts with different domain validators or specs must be rejected at composition time."""
+    var_strict = make_var_sort(0.20)
+    var_loose = make_var_sort(0.05)
+    assert var_strict.name == var_loose.name == "Var"
+    assert var_strict != var_loose
+
+    producer_loose = Hyperedge("est_var", (DRIFT_SORT,), (var_loose,), lambda x: (max(0.05, x * x),))
+    consumer_strict = Hyperedge("inv_var", (var_strict,), (DRIFT_SORT,), lambda v: (1.0 / v,))
+
+    with pytest.raises(TypeError):
+        consumer_strict.graft(producer_loose, 0)
+
+    with pytest.raises(TypeError):
+        consumer_strict.compose(producer_loose)
+
+    # Even if domain_spec is identical, distinct domain_check callables with the same name are rejected
+    custom_a = Sort("Custom", lambda x: x > 0.0, domain_spec="pos")
+    custom_b = Sort("Custom", lambda x: x > 1.0, domain_spec="pos")
+    edge_a = Hyperedge("ea", (custom_a,), (custom_a,), lambda x: (x,))
+    edge_b = Hyperedge("eb", (custom_b,), (custom_b,), lambda x: (x,))
+    with pytest.raises(TypeError):
+        edge_b.graft(edge_a, 0)
+    with pytest.raises(TypeError):
+        edge_b.compose(edge_a)
+
+
+def test_3a_two_stage_ratio_conf_radius_and_projected_event_certificate():
+    """Check 3A (Findings 1 & 2 Repaired): Verifies Stage A (`CONF_RADIUS` on unclamped ratio f/v),
+    Stage B (`EVENT` on projected exposure in [-Lambda_max, Lambda_max]), boundary target v_star = sigma_min2,
+    and gradient/Hessian spectral norm bounds across 2,000 balls.
+    """
     sigma_min2 = 0.2
+    lambda_max = 1.6
 
     near_floor = kelly_ratio_certificate_pushforward(0.3, 0.25, 0.04, sigma_min2)
     assert near_floor["status"] == "UNESTABLISHED"
     assert near_floor["code"] == "DOMAIN_VIOLATION"
+    assert project_kelly_exposure_certificate(near_floor, lambda_max)["status"] == "UNESTABLISHED"
 
     # Boundary target v_star = sigma_min2
     boundary_v_star = sigma_min2
@@ -77,6 +117,30 @@ def test_3a_decoupled_event_stratum_domain_guard_and_kelly_pushforward_bounds():
     boundary_push = kelly_ratio_certificate_pushforward(f_hat_bound, v_hat_bound, r_bound, sigma_min2)
     assert boundary_push["status"] == "UNESTABLISHED"
     assert boundary_push["code"] == "DOMAIN_VIOLATION"
+
+    # Unclamped ratio exceeding [-Lambda_max, Lambda_max]: Stage A is CONF_RADIUS (unclamped), Stage B projects to EVENT
+    high_ratio_raw = kelly_ratio_certificate_pushforward(0.9, 0.35, 0.02, sigma_min2, delta=0.05)
+    assert high_ratio_raw["status"] == "CONF_RADIUS"
+    assert "m_max" not in high_ratio_raw
+    assert high_ratio_raw["theta_raw"] > lambda_max
+
+    high_ratio_proj = project_kelly_exposure_certificate(high_ratio_raw, lambda_max)
+    assert high_ratio_proj["status"] == "EVENT"
+    assert abs(high_ratio_proj["theta_clamped"] - lambda_max) <= 1e-12
+    assert abs(high_ratio_proj["m_max"] - 2.0 * lambda_max) <= 1e-12
+    assert high_ratio_proj["r_out"] <= 2.0 * lambda_max
+
+    # Finding 1 check: moment_to_event requires explicit finite m_max, while moment_to_confidence_radius does not
+    m_cert = MomentCert(eps=0.01, variance=0.04, nu_subg=0.1, dimension=2)
+    conf_cert = moment_to_confidence_radius(m_cert, delta=0.05)
+    assert conf_cert.status == "CONF_RADIUS"
+    missing_bound = moment_to_event(m_cert, delta=0.05, m_max=None)
+    assert missing_bound.status == "UNESTABLISHED"
+    assert missing_bound.code == "MISSING_AS_BOUND"
+    box_diam = compact_moment_box_diameter(xi_max=0.5, sigma_min2=0.05)
+    ev_cert = moment_to_event(m_cert, delta=0.05, m_max=box_diam)
+    assert ev_cert.status == "EVENT"
+    assert abs(ev_cert.m_max - box_diam) <= 1e-14
 
     seed = 987654321
 
@@ -95,9 +159,10 @@ def test_3a_decoupled_event_stratum_domain_guard_and_kelly_pushforward_bounds():
         f_hat = f_star + dist * math.cos(angle)
         v_hat = v_star + dist * math.sin(angle)
 
-        cert = kelly_ratio_certificate_pushforward(f_hat, v_hat, r, sigma_min2)
-        if cert["status"] == "UNESTABLISHED":
+        raw_cert = kelly_ratio_certificate_pushforward(f_hat, v_hat, r, sigma_min2)
+        if raw_cert["status"] == "UNESTABLISHED":
             continue
+        assert raw_cert["status"] == "CONF_RADIUS"
 
         for rad_scale in (0.0, 0.5, 1.0, 2.0):
             for step in range(8):
@@ -106,11 +171,18 @@ def test_3a_decoupled_event_stratum_domain_guard_and_kelly_pushforward_bounds():
                 vb = v_hat + rad_scale * r * math.sin(ang)
                 grad_norm = math.hypot(1.0 / vb, fb / (vb * vb))
                 hess_norm = exact_kelly_hessian_spectral_norm(fb, vb)
-                assert cert["L_hat_o"] >= grad_norm - 1e-12
-                assert cert["M_hat_Ho"] >= hess_norm - 1e-12
+                assert raw_cert["L_hat_o"] >= grad_norm - 1e-12
+                assert raw_cert["M_hat_Ho"] >= hess_norm - 1e-12
 
-        actual_err = abs(f_hat / v_hat - f_star / v_star)
-        assert actual_err <= cert["r_out"] + 1e-12
+        actual_raw_err = abs(f_hat / v_hat - f_star / v_star)
+        assert actual_raw_err <= raw_cert["r_raw"] + 1e-12
+
+        proj_cert = project_kelly_exposure_certificate(raw_cert, lambda_max)
+        assert proj_cert["status"] == "EVENT"
+        theta_star_clamped = max(-lambda_max, min(lambda_max, f_star / v_star))
+        actual_proj_err = abs(proj_cert["theta_clamped"] - theta_star_clamped)
+        assert actual_proj_err <= proj_cert["r_out"] + 1e-12
+        assert actual_proj_err <= proj_cert["m_max"] + 1e-12
 
 
 def test_3b_lemma_7_1a_sub_gaussian_net_radius_repair():

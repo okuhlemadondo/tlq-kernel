@@ -1,7 +1,7 @@
-"""Tests for the S/L/D/V Kernel Obligation Spine & Named Rejections on Vertical Rewrites."""
+"""Tests for the S/L/D/V Kernel Obligation Spine & Named Rejections on Vertical Rewrites (including Issue B Regressions)."""
 from __future__ import annotations
 import pytest
-from tlq.kernel import Derivation, Rejected
+from tlq.kernel import Derivation, Explicit, Obligation, Rejected, Transformation
 from tlq.vertical import (
     ResizingProblem,
     MTM_SHIFT,
@@ -88,3 +88,60 @@ def test_reject_claiming_full_zero_slack_preservation_on_log_wealth_without_surr
     p_lin = ResizingProblem(target="linear_wealth", allow_surrogate_slack=False)
     res_lin = _run_chain(p_lin, claim=("sound", "complete", "full"))
     assert res_lin.total_slack == 0.0
+
+
+def test_issue_b_reject_negative_or_non_finite_rewrite_slack():
+    """Issue B1 Regression: Kernel must reject transformations declaring negative or non-finite slack."""
+    for bad_slack in (-0.01, float("nan"), float("inf")):
+        bad_rule = Transformation(
+            name="BAD_SLACK_RULE",
+            preserves=frozenset({"sound"}),
+            applies=lambda P: (True, "ok"),
+            obligations=lambda P: [],
+            forward=lambda P: P,
+            slack=lambda P, val=bad_slack: val,
+        )
+        with pytest.raises(Rejected) as exc:
+            Derivation(ResizingProblem()).apply(bad_rule)
+        assert "slack" in exc.value.names()
+
+
+def test_issue_b_fan_enforces_structural_state_and_fanout_flag_invariants():
+    """Issue B2 Regression: Derivation.fan must reject non-fanout rules and already-branched/terminated derivations."""
+    p = ResizingProblem()
+
+    # Calling .fan() with a non-fanout rule must raise Rejected("structure")
+    with pytest.raises(Rejected) as exc_non_fan:
+        Derivation(p).fan(MTM_SHIFT, lambda i, d: d)
+    assert "structure" in exc_non_fan.value.names()
+
+    # Calling .fan() after a terminal solver must raise Rejected("structure")
+    d_term = Derivation(p)
+    for r in VERTICAL_CHAIN:
+        d_term.apply(r)
+    dummy_fan = Transformation(
+        name="DUMMY_FAN",
+        preserves=frozenset({"sound"}),
+        applies=lambda P: (True, "ok"),
+        obligations=lambda P: [],
+        forward=lambda P: [P, P],
+        lift=lambda P, sols: sols[0],
+        fanout=True,
+    )
+    with pytest.raises(Rejected) as exc_after_term:
+        d_term.fan(dummy_fan, lambda i, sd: sd)
+    assert "structure" in exc_after_term.value.names()
+
+    # Calling .fan() a second time on an already-branched derivation must raise Rejected("structure")
+    dummy_solver = Transformation(
+        name="DUMMY_SOLVER",
+        preserves=frozenset({"sound"}),
+        applies=lambda P: (True, "ok"),
+        obligations=lambda P: [],
+        forward=lambda P: Explicit([{"theta_star": 0.0}]),
+        terminal=True,
+    )
+    d_branched = Derivation(p).fan(dummy_fan, lambda i, sd: sd.apply(dummy_solver))
+    with pytest.raises(Rejected) as exc_double_fan:
+        d_branched.fan(dummy_fan, lambda i, sd: sd.apply(dummy_solver))
+    assert "structure" in exc_double_fan.value.names()

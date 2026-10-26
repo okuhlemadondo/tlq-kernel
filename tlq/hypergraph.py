@@ -1,7 +1,7 @@
 """Section 3: Spatial Structure (CD(Sigma)) — Typed Multicategory / Copy-Discard PROP & Proposition 3.3.
 
 Implements:
-- Sort(name, validator) for semantic sorts S with domain invariants D(s)
+- Sort(name, domain_check, domain_spec) for semantic sorts S with full contract identity (name + domain_spec + validator)
 - Hyperedge(name, in_sorts, out_sorts, fn) supporting port-grafting (o_i), parallel tensor, copy (Delta), discard (!)
 - Universal shift-register impossibility verifier on M_reg(add, mul) (Proposition 3.3(1))
 """
@@ -12,19 +12,27 @@ from typing import Any, Callable
 
 @dataclass(frozen=True)
 class Sort:
+    """A semantic sort s in S equipped with a domain invariant D(s) and contract descriptor.
+    Two sorts are equal if and only if their name, domain_spec, and domain_check callable all match.
+    """
     name: str
     domain_check: Callable[[Any], bool] = lambda x: True
+    domain_spec: str = "unrestricted"
 
     def validate(self, value: Any) -> bool:
         return bool(self.domain_check(value))
 
 
-WEALTH_SORT = Sort("Wealth", lambda w: isinstance(w, (int, float)) and w > 0.0)
-DRIFT_SORT = Sort("Drift", lambda f: isinstance(f, (int, float)))
+WEALTH_SORT = Sort("Wealth", lambda w: isinstance(w, (int, float)) and w > 0.0, domain_spec="(0, inf)")
+DRIFT_SORT = Sort("Drift", lambda f: isinstance(f, (int, float)), domain_spec="(-inf, inf)")
 
 
 def make_var_sort(sigma_min2: float = 1e-6) -> Sort:
-    return Sort("Var", lambda v: isinstance(v, (int, float)) and v >= sigma_min2)
+    return Sort(
+        "Var",
+        lambda v, floor=sigma_min2: isinstance(v, (int, float)) and v >= floor,
+        domain_spec=f"[{sigma_min2:.8g}, inf)",
+    )
 
 
 @dataclass(frozen=True)
@@ -40,7 +48,9 @@ class Hyperedge:
             raise ValueError(f"{self.name}: expected {len(self.in_sorts)} inputs, got {len(inputs)}")
         for idx, (s, val) in enumerate(zip(self.in_sorts, inputs)):
             if not s.validate(val):
-                raise ValueError(f"{self.name}: input port {idx} ({s.name}) violated domain invariant with {val!r}")
+                raise ValueError(
+                    f"{self.name}: input port {idx} ({s.name}:{s.domain_spec}) violated domain invariant with {val!r}"
+                )
         outputs = self.fn(*inputs)
         if not isinstance(outputs, tuple):
             outputs = (outputs,)
@@ -48,18 +58,25 @@ class Hyperedge:
             raise ValueError(f"{self.name}: expected {len(self.out_sorts)} outputs, got {len(outputs)}")
         for idx, (s, val) in enumerate(zip(self.out_sorts, outputs)):
             if not s.validate(val):
-                raise ValueError(f"{self.name}: output port {idx} ({s.name}) violated domain invariant with {val!r}")
+                raise ValueError(
+                    f"{self.name}: output port {idx} ({s.name}:{s.domain_spec}) violated domain invariant with {val!r}"
+                )
         return outputs
 
     def graft(self, g: "Hyperedge", port_index: int) -> "Hyperedge":
-        """Port-grafting composition f o_i g (Definition 3.2, 0-indexed port_index)."""
+        """Port-grafting composition f o_i g (Definition 3.2, 0-indexed port_index).
+        Enforces full Sort contract equality (name, domain_spec, and domain_check).
+        """
         if len(g.out_sorts) != 1:
             raise ValueError("Port-grafting requires g to have a single output sort")
         if not (0 <= port_index < len(self.in_sorts)):
             raise IndexError(f"port_index {port_index} out of range for {len(self.in_sorts)} inputs")
-        if self.in_sorts[port_index].name != g.out_sorts[0].name:
+        expected_sort = self.in_sorts[port_index]
+        actual_sort = g.out_sorts[0]
+        if expected_sort != actual_sort:
             raise TypeError(
-                f"Sort mismatch on port {port_index}: expected {self.in_sorts[port_index].name}, got {g.out_sorts[0].name}"
+                f"Sort contract mismatch on port {port_index}: expected {expected_sort.name}({expected_sort.domain_spec}), "
+                f"got {actual_sort.name}({actual_sort.domain_spec})"
             )
         new_in = self.in_sorts[:port_index] + g.in_sorts + self.in_sorts[port_index + 1:]
         p = len(g.in_sorts)
@@ -85,11 +102,11 @@ class Hyperedge:
         return Hyperedge(f"({self.name} (x) {other.name})", new_in, new_out, tensored)
 
     def compose(self, earlier: "Hyperedge") -> "Hyperedge":
-        """Sequential categorical composition self o earlier in CD(Sigma)."""
-        if len(self.in_sorts) != len(earlier.out_sorts) or any(
-            a.name != b.name for a, b in zip(self.in_sorts, earlier.out_sorts)
-        ):
-            raise TypeError("Sequential composition sort mismatch")
+        """Sequential categorical composition self o earlier in CD(Sigma).
+        Enforces full Sort contract equality across all interface wires.
+        """
+        if len(self.in_sorts) != len(earlier.out_sorts) or self.in_sorts != earlier.out_sorts:
+            raise TypeError("Sequential composition sort contract mismatch")
 
         def seq(*args: Any) -> tuple[Any, ...]:
             mid = earlier.eval(*args)
@@ -132,7 +149,7 @@ def verify_shift_register_impossibility(max_length: int = 6) -> dict[str, Any]:
     """Proposition 3.3(1): Exhaustively checks all words W_K in M_reg(add, mul) up to length max_length
     on input (2, 3), verifying the inductive invariant u_K > v_K >= 2 for K >= 1 and W_K(2, 3) != (5, 6).
     """
-    real_sort = Sort("R", lambda x: isinstance(x, (int, float)))
+    real_sort = Sort("R", lambda x: isinstance(x, (int, float)), domain_spec="(-inf, inf)")
     add_edge = Hyperedge("add", (real_sort, real_sort), (real_sort,), lambda a, b: (a + b,))
     mul_edge = Hyperedge("mul", (real_sort, real_sort), (real_sort,), lambda a, b: (a * b,))
     fanout_cd = add_edge.tensor(mul_edge).compose(copy_wire((real_sort, real_sort)))
