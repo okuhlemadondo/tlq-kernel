@@ -1,0 +1,25 @@
+name: Verify TLQ v2.2.2-RC Suite & SHA-256 Manifest
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify SHA-256 integrity manifest
+        run: shasum -a 256 -c MANIFEST.sha256
+
+      - name: Run TLQ v2.2.2-RC executable verification suite
+        run: python3 run_suite.py

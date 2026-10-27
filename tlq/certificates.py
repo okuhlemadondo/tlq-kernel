@@ -89,6 +89,8 @@ def compact_moment_box_diameter(xi_max: float, sigma_min2: float) -> float:
     """Computes the Euclidean diameter M_{in,max} of the compact moment box
     D_bdd(Drift (x) Var) = [-xi_max, xi_max] x [sigma_min2, xi_max^2] under bounded shock support |xi| <= xi_max.
     """
+    if not math.isfinite(xi_max) or not math.isfinite(sigma_min2):
+        raise ValueError(f"Non-finite compact moment box parameters: xi_max={xi_max}, sigma_min2={sigma_min2}")
     v_max = xi_max * xi_max
     if xi_max <= 0.0 or sigma_min2 <= 0.0 or v_max < sigma_min2:
         raise ValueError(f"Invalid compact moment box parameters: xi_max={xi_max}, sigma_min2={sigma_min2} (requires xi_max^2 >= sigma_min2 > 0)")
@@ -101,15 +103,18 @@ def clamp_moment_pair_to_compact_box(
     xi_max: float,
     sigma_min2: float,
 ) -> dict[str, Any]:
-    """Orthogonally projects an input moment estimate (f_hat, v_hat) onto the compact moment box
+    """Orthogonally projects a finite input moment estimate (f_hat, v_hat) onto the compact moment box
     D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2].
-    Because the true causal moments (f_bar_t, sigma2_bar_t) lie in D_bdd whenever |xi_{t+1}| <= xi_max a.s.,
-    orthogonal projection onto the convex box D_bdd is non-expansive (preserving any high-probability
-    confidence radius r_in) and establishes the almost-sure error diameter M_{in,max} = diam_2(D_bdd).
+    Rejects non-finite box parameters (`INVALID_MOMENT_BOX`) and non-finite moment observations
+    (`NON_FINITE_OBSERVATION`) before projection so NaN or +/-inf cannot be silently clamped to box endpoints.
     """
-    v_max = xi_max * xi_max
-    if xi_max <= 0.0 or sigma_min2 <= 0.0 or v_max < sigma_min2:
+    if not math.isfinite(xi_max) or not math.isfinite(sigma_min2):
         return {"status": "UNESTABLISHED", "code": "INVALID_MOMENT_BOX"}
+    v_max = xi_max * xi_max
+    if xi_max <= 0.0 or sigma_min2 <= 0.0 or v_max < sigma_min2 or not math.isfinite(v_max):
+        return {"status": "UNESTABLISHED", "code": "INVALID_MOMENT_BOX"}
+    if not math.isfinite(f_hat) or not math.isfinite(v_hat):
+        return {"status": "UNESTABLISHED", "code": "NON_FINITE_OBSERVATION"}
     f_clamped = max(-xi_max, min(xi_max, f_hat))
     v_clamped = max(sigma_min2, min(v_max, v_hat))
     m_in_max = math.hypot(2.0 * xi_max, v_max - sigma_min2)
@@ -125,7 +130,15 @@ def moment_to_confidence_radius(cert: MomentCert, delta: float) -> Union[Confide
     """Converts a MomentCert with sub-Gaussian parameter nu_subg >= 0 into a ConfidenceRadiusCert via Lemma 7.1a(1)
     (high-probability ball only; does NOT assert an almost-sure diameter M_max).
     """
-    if delta <= 0.0 or delta >= 1.0 or cert.nu_subg < 0.0:
+    if (
+        not math.isfinite(delta)
+        or not (0.0 < delta < 1.0)
+        or not math.isfinite(cert.eps)
+        or cert.eps < 0.0
+        or not math.isfinite(cert.nu_subg)
+        or cert.nu_subg < 0.0
+        or cert.dimension < 1
+    ):
         return UnestablishedCert("TAIL_FAILURE")
     rad = sub_gaussian_event_radius(cert.eps, cert.dimension, cert.nu_subg, delta)["exact_net_radius"]
     return ConfidenceRadiusCert(r=rad, delta=delta)
@@ -139,7 +152,15 @@ def moment_to_event(
     """Upgrades a MomentCert into a bounded EventCert via Lemma 7.1a(1) ONLY when an explicit finite
     almost-sure error bound m_max > 0 (e.g., from a compact domain clamp) is supplied.
     """
-    if delta <= 0.0 or delta >= 1.0 or cert.nu_subg < 0.0:
+    if (
+        not math.isfinite(delta)
+        or not (0.0 < delta < 1.0)
+        or not math.isfinite(cert.eps)
+        or cert.eps < 0.0
+        or not math.isfinite(cert.nu_subg)
+        or cert.nu_subg < 0.0
+        or cert.dimension < 1
+    ):
         return UnestablishedCert("TAIL_FAILURE")
     if m_max is None or not math.isfinite(m_max) or m_max <= 0.0:
         return UnestablishedCert("MISSING_AS_BOUND")
@@ -158,8 +179,17 @@ def event_to_quadratic_regret_bound(
     Equals the constrained quadratic objective regret when the constrained optimum u* is interior;
     when u* lies on the boundary of U(x_t), see `event_to_constrained_quadratic_objective_regret_bound`.
     """
-    if not math.isfinite(m_max) or m_max < 0.0 or not (0.0 <= delta <= 1.0):
-        raise ValueError(f"event_to_quadratic_regret_bound requires finite m_max >= 0 and delta in [0, 1], got m_max={m_max}, delta={delta}")
+    if (
+        not math.isfinite(lambda_max_phi)
+        or lambda_max_phi < 0.0
+        or not math.isfinite(r)
+        or r < 0.0
+        or not math.isfinite(m_max)
+        or m_max < 0.0
+        or not math.isfinite(delta)
+        or not (0.0 <= delta <= 1.0)
+    ):
+        raise ValueError(f"event_to_quadratic_regret_bound requires finite non-negative parameters and delta in [0, 1], got lambda_max_phi={lambda_max_phi}, r={r}, m_max={m_max}, delta={delta}")
     return lambda_max_phi * ((1.0 - delta) * (r * r) + delta * (m_max * m_max))
 
 
@@ -182,7 +212,18 @@ def event_to_constrained_quadratic_objective_regret_bound(
         <= (sigma^2 / 2) * ((1 - delta) * r^2 + delta * M_max^2)
            + boundary_slope_max * ((1 - delta) * r + delta * M_max).
     """
-    if not math.isfinite(m_max) or m_max < 0.0 or not (0.0 <= delta <= 1.0) or boundary_slope_max < 0.0:
+    if (
+        not math.isfinite(sigma2)
+        or sigma2 < 0.0
+        or not math.isfinite(r)
+        or r < 0.0
+        or not math.isfinite(m_max)
+        or m_max < 0.0
+        or not math.isfinite(delta)
+        or not (0.0 <= delta <= 1.0)
+        or not math.isfinite(boundary_slope_max)
+        or boundary_slope_max < 0.0
+    ):
         raise ValueError("Invalid parameters for event_to_constrained_quadratic_objective_regret_bound")
     control_error_term = event_to_quadratic_regret_bound(0.5 * sigma2, r, delta, m_max)
     boundary_slope_term = boundary_slope_max * ((1.0 - delta) * r + delta * m_max)
@@ -213,6 +254,17 @@ def kelly_ratio_certificate_pushforward(
     Returns `status="CONF_RADIUS"` with high-probability radius `r_raw` without claiming an
     action-interval almost-sure bound `2 * Lambda_max`.
     """
+    if (
+        not math.isfinite(f_hat)
+        or not math.isfinite(v_hat)
+        or not math.isfinite(r)
+        or not math.isfinite(sigma_min2)
+        or not math.isfinite(delta)
+        or r < 0.0
+        or sigma_min2 <= 0.0
+        or not (0.0 < delta < 1.0)
+    ):
+        return {"status": "UNESTABLISHED", "code": "DOMAIN_VIOLATION"}
     v_min_ball = v_hat - 2.0 * r
     if v_min_ball < sigma_min2:
         return {"status": "UNESTABLISHED", "code": "DOMAIN_VIOLATION"}
@@ -248,6 +300,8 @@ def project_kelly_exposure_certificate(
     theta_raw = float(raw_cert["theta_raw"])
     r_raw = float(raw_cert["r_raw"])
     delta = float(raw_cert["delta"])
+    if not (math.isfinite(theta_raw) and math.isfinite(r_raw) and math.isfinite(delta)) or r_raw < 0.0 or not (0.0 < delta < 1.0):
+        return {"status": "UNESTABLISHED", "code": "INVALID_PROJECTION_CONTRACT"}
     m_out_max = 2.0 * lambda_max
     theta_clamped = max(-lambda_max, min(lambda_max, theta_raw))
     r_proj = min(r_raw, m_out_max)

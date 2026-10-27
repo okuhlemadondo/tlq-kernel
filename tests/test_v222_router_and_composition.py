@@ -435,3 +435,48 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_four_stage_composition
     assert cert_bad_envelope["status"] == "UNESTABLISHED"
     assert cert_bad_envelope["code"] == "INVALID_MOMENT_ENVELOPE"
 
+    # Non-finite moment observations (NaN, +inf, -inf in f_hat or v_hat) fail closed with NON_FINITE_OBSERVATION
+    for bad_f, bad_v in (
+        (float("nan"), 0.45),
+        (float("inf"), 0.45),
+        (float("-inf"), 0.45),
+        (0.12, float("nan")),
+        (0.12, float("inf")),
+        (0.12, float("-inf")),
+    ):
+        cert_non_finite = compose_end_to_end_certificate(
+            f_hat=bad_f,
+            v_hat=bad_v,
+            eps_moment=0.005,
+            nu_subg=0.01,
+            delta=0.05,
+            sigma_min2=0.20,
+            sigma2_true=0.45,
+            lambda_max=0.8,
+            eta_margin=0.2,
+            third_abs_moment=0.04,
+        )
+        assert cert_non_finite["status"] == "UNESTABLISHED"
+        assert cert_non_finite["code"] == "NON_FINITE_OBSERVATION"
+        assert cert_non_finite["fallback_graph"] == "G_null"
+        assert cert_non_finite["fallback_exposure"] == 0.0
+
+    # Non-finite sigma_min2 fails closed with INVALID_MOMENT_BOX
+    for bad_smin2 in (float("nan"), float("inf"), float("-inf")):
+        cert_bad_smin2 = compose_end_to_end_certificate(
+            f_hat=0.12,
+            v_hat=0.45,
+            eps_moment=0.005,
+            nu_subg=0.01,
+            delta=0.05,
+            sigma_min2=bad_smin2,
+            sigma2_true=0.45,
+            lambda_max=0.8,
+            eta_margin=0.2,
+            third_abs_moment=0.04,
+        )
+        assert cert_bad_smin2["status"] == "UNESTABLISHED"
+        assert cert_bad_smin2["code"] == "INVALID_MOMENT_BOX"
+        assert cert_bad_smin2["fallback_graph"] == "G_null"
+        assert cert_bad_smin2["fallback_exposure"] == 0.0
+
