@@ -393,7 +393,45 @@ def test_theorem_8_4b_switching_frequency_and_theorem_9_1_four_stage_composition
         lambda_max=1.6,
         eta_margin=0.2,
         third_abs_moment=0.04,
-        xi_max=0.5,       # xi_max^2 = 0.25 < sigma_min2 = 0.50
+        xi_max=0.5,       # lambda_max * xi_max = 0.8 <= 1 - 0.2, but xi_max^2 = 0.25 < sigma_min2 = 0.50
     )
     assert cert_bad_box["status"] == "UNESTABLISHED"
     assert cert_bad_box["code"] == "INVALID_MOMENT_BOX"
+
+    # Entry-point safety-cap violation (lambda_max * xi_max = 1.0 > 1 - eta_margin = 0.8) triggers SAFETY_CAP_VIOLATION
+    cert_bad_safety = compose_end_to_end_certificate(
+        f_hat=0.12,
+        v_hat=0.45,
+        eps_moment=0.005,
+        nu_subg=0.01,
+        delta=0.05,
+        sigma_min2=0.20,
+        sigma2_true=0.45,
+        lambda_max=1.0,
+        eta_margin=0.2,
+        third_abs_moment=0.04,
+        xi_max=1.0,       # 1.0 * 1.0 = 1.0 > 1 - 0.2 = 0.8 -> violates bounded-shock survival contract
+    )
+    assert cert_bad_safety["status"] == "UNESTABLISHED"
+    assert cert_bad_safety["code"] == "SAFETY_CAP_VIOLATION"
+    assert cert_bad_safety["fallback_graph"] == "G_null"
+    assert cert_bad_safety["fallback_exposure"] == 0.0
+
+    # Invalid caller-supplied moment envelope (f_true_abs_max > xi_max) triggers INVALID_MOMENT_ENVELOPE
+    cert_bad_envelope = compose_end_to_end_certificate(
+        f_hat=0.12,
+        v_hat=0.45,
+        eps_moment=0.005,
+        nu_subg=0.01,
+        delta=0.05,
+        sigma_min2=0.20,
+        sigma2_true=0.45,
+        lambda_max=0.8,
+        eta_margin=0.2,
+        third_abs_moment=0.04,
+        xi_max=1.0,
+        f_true_abs_max=1.5,  # exceeds xi_max = 1.0
+    )
+    assert cert_bad_envelope["status"] == "UNESTABLISHED"
+    assert cert_bad_envelope["code"] == "INVALID_MOMENT_ENVELOPE"
+

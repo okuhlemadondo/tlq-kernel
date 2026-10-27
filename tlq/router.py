@@ -192,7 +192,13 @@ def compose_end_to_end_certificate(
     f_true_abs_max: float | None = None,
 ) -> dict[str, Any]:
     """Theorem 9.1 (Package B End-to-End Composition with Explicit Separation of Squared Control Error
-    vs. Constrained Quadratic Objective Regret):
+    vs. Constrained Quadratic Objective Regret & Safety-Cap Contract Validation):
+    0. Entry-Point Contract Validation:
+       Verifies 0 < eta_margin < 1, lambda_max > 0, xi_max > 0, and the bounded-shock pathwise survival
+       relationship lambda_max * xi_max <= 1 - eta_margin (returning UNESTABLISHED(SAFETY_CAP_VIOLATION)
+       and falling back to G_null if violated). Also validates 0 < delta < 1, eps_moment >= 0, nu_subg >= 0,
+       sigma_min2 <= sigma2_true <= xi_max^2, third_abs_moment >= 0, and (when supplied as an explicit
+       caller-assumed prior drift envelope |f_t| <= f_true_abs_max) 0 <= f_true_abs_max <= xi_max.
     1. Stage 1 (Compact Input Moment Box Projection & Input EVENT Certificate):
        Derives xi_max = (1 - eta_margin) / lambda_max (if not passed), checks xi_max^2 >= sigma_min2 > 0,
        projects (f_hat, v_hat) onto D_bdd = [-xi_max, xi_max] x [sigma_min2, xi_max^2], and combines
@@ -212,13 +218,69 @@ def compose_end_to_end_certificate(
            = (sigma_t^2 / 2) * (theta_t - theta_quad*)^2 + g_{bnd,t} * |theta_t - theta_quad*|,
        where g_{bnd,t} = max(0, |f_t| - sigma_t^2 * Lambda_max) <= max(0, f_abs_bound - sigma_t^2 * Lambda_max)
        (vanishing identically whenever theta_quad* is interior), and adds the Stage 2b Taylor remainder.
+       Note: When optional `f_true_abs_max` is omitted, the unconditional bounded-shock support bound
+       |f_t| <= xi_max is used; when supplied, |f_t| <= f_true_abs_max is a caller-supplied prior assumption.
     """
+    if (
+        not math.isfinite(lambda_max)
+        or lambda_max <= 0.0
+        or not math.isfinite(eta_margin)
+        or not (0.0 < eta_margin < 1.0)
+    ):
+        return {
+            "status": "UNESTABLISHED",
+            "code": "SAFETY_CAP_VIOLATION",
+            "fallback_graph": "G_null",
+            "fallback_exposure": 0.0,
+        }
     xi_max_eff = xi_max if xi_max is not None else (1.0 - eta_margin) / lambda_max
+    if (
+        not math.isfinite(xi_max_eff)
+        or xi_max_eff <= 0.0
+        or lambda_max * xi_max_eff > (1.0 - eta_margin) + 1e-12
+    ):
+        return {
+            "status": "UNESTABLISHED",
+            "code": "SAFETY_CAP_VIOLATION",
+            "fallback_graph": "G_null",
+            "fallback_exposure": 0.0,
+        }
+    if (
+        not math.isfinite(delta)
+        or not (0.0 < delta < 1.0)
+        or not math.isfinite(eps_moment)
+        or eps_moment < 0.0
+        or not math.isfinite(nu_subg)
+        or nu_subg < 0.0
+    ):
+        return {
+            "status": "UNESTABLISHED",
+            "code": "TAIL_FAILURE",
+            "fallback_graph": "G_null",
+            "fallback_exposure": 0.0,
+        }
     box = clamp_moment_pair_to_compact_box(f_hat, v_hat, xi_max_eff, sigma_min2)
     if box["status"] == "UNESTABLISHED":
         return {
             "status": "UNESTABLISHED",
             "code": box["code"],
+            "fallback_graph": "G_null",
+            "fallback_exposure": 0.0,
+        }
+    if (
+        not math.isfinite(sigma2_true)
+        or sigma2_true < sigma_min2
+        or sigma2_true > (xi_max_eff * xi_max_eff) + 1e-12
+        or not math.isfinite(third_abs_moment)
+        or third_abs_moment < 0.0
+        or (
+            f_true_abs_max is not None
+            and (not math.isfinite(f_true_abs_max) or f_true_abs_max < 0.0 or f_true_abs_max > xi_max_eff + 1e-12)
+        )
+    ):
+        return {
+            "status": "UNESTABLISHED",
+            "code": "INVALID_MOMENT_ENVELOPE",
             "fallback_graph": "G_null",
             "fallback_exposure": 0.0,
         }
